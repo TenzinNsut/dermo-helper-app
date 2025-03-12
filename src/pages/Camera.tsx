@@ -1,40 +1,34 @@
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, RefreshCw, CheckCircle, X } from 'lucide-react';
+import { Camera, Image, RefreshCw, CheckCircle, X } from 'lucide-react';
 import Layout from '@/components/Layout';
 import ActionButton from '@/components/ActionButton';
-import { useDeviceCamera } from '@/hooks/useDeviceCamera';
+import { useCapacitorCamera } from '@/hooks/useCapacitorCamera';
 import ImagePreview from '@/components/ImagePreview';
+import { useToast } from '@/hooks/use-toast';
 
 const CameraPage: React.FC = () => {
   const navigate = useNavigate();
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const { toast } = useToast();
   const {
-    videoRef,
+    capturedImage,
     isLoading,
     error,
-    startCamera,
-    stopCamera,
-    switchCameraFacing,
-    capturePhoto
-  } = useDeviceCamera({ facingMode: 'environment' });
+    takePicture,
+    selectFromGallery,
+    resetImage
+  } = useCapacitorCamera();
 
-  useEffect(() => {
-    startCamera();
-    return () => stopCamera();
-  }, []);
-
-  const handleCapture = () => {
-    const image = capturePhoto();
-    if (image) {
-      setCapturedImage(image);
+  React.useEffect(() => {
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error
+      });
     }
-  };
-
-  const handleRetake = () => {
-    setCapturedImage(null);
-  };
+  }, [error, toast]);
 
   const handleConfirm = () => {
     if (capturedImage) {
@@ -53,45 +47,22 @@ const CameraPage: React.FC = () => {
           >
             <X size={20} />
           </button>
-          
-          {!capturedImage && (
-            <button 
-              onClick={switchCameraFacing}
-              className="p-2 rounded-full bg-black/30 text-white hover:bg-black/50 focus-ring"
-              aria-label="Switch camera"
-              disabled={isLoading}
-            >
-              <RefreshCw size={20} className={isLoading ? 'animate-spin' : ''} />
-            </button>
-          )}
         </div>
       </div>
 
       <div className="flex-1 flex items-center justify-center">
-        {error ? (
-          <div className="text-center p-6 bg-destructive/10 rounded-lg max-w-sm mx-auto">
-            <p className="text-destructive mb-4">{error}</p>
-            <ActionButton onClick={() => startCamera()}>
-              Try Again
-            </ActionButton>
-          </div>
-        ) : capturedImage ? (
+        {capturedImage ? (
           <div className="w-full h-full">
             <ImagePreview src={capturedImage} className="w-full h-full" />
           </div>
         ) : (
-          <div className="relative w-full h-full bg-black">
-            {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-16 h-16 border-4 border-muted border-t-primary rounded-full animate-spin"></div>
-              </div>
-            )}
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline
-              className="w-full h-full object-cover"
-            />
+          <div className="flex flex-col items-center justify-center h-full p-6 space-y-8">
+            <div className="p-6 rounded-full bg-primary/10 animate-pulse">
+              <Camera size={64} className="text-primary" />
+            </div>
+            <p className="text-center text-muted-foreground">
+              Use the buttons below to take a picture or select from your gallery
+            </p>
           </div>
         )}
       </div>
@@ -100,7 +71,7 @@ const CameraPage: React.FC = () => {
         {capturedImage ? (
           <div className="flex items-center justify-between gap-4">
             <ActionButton 
-              onClick={handleRetake}
+              onClick={resetImage}
               variant="outline"
               className="flex-1"
             >
@@ -116,15 +87,25 @@ const CameraPage: React.FC = () => {
             </ActionButton>
           </div>
         ) : (
-          <div className="flex justify-center">
-            <button 
-              onClick={handleCapture}
-              className="w-16 h-16 rounded-full border-4 border-primary bg-white focus-ring flex items-center justify-center relative"
-              disabled={isLoading}
-              aria-label="Take photo"
+          <div className="flex flex-col gap-3">
+            <ActionButton 
+              onClick={takePicture}
+              loading={isLoading}
+              icon={<Camera className="w-5 h-5" />}
+              className="w-full"
             >
-              <div className="absolute inset-3 rounded-full bg-primary"></div>
-            </button>
+              Take Photo
+            </ActionButton>
+            
+            <ActionButton 
+              onClick={selectFromGallery}
+              loading={isLoading}
+              variant="outline"
+              icon={<Image className="w-5 h-5" />}
+              className="w-full"
+            >
+              Select from Gallery
+            </ActionButton>
           </div>
         )}
       </div>
