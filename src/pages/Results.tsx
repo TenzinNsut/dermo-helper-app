@@ -5,32 +5,67 @@ import { AlertCircle, Share2, Download, ArrowRight } from 'lucide-react';
 import Layout from '@/components/Layout';
 import ActionButton from '@/components/ActionButton';
 import ImagePreview from '@/components/ImagePreview';
+import { modelService, PredictionResult } from '@/services/modelService';
+import { useToast } from '@/hooks/use-toast';
+
+// You can replace this with the URL to your TFLite model
+const MODEL_URL = 'YOUR_MODEL_URL_HERE'; // TODO: Replace with actual model URL
 
 const Results: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [imageData, setImageData] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  
-  // Mock results - this would be replaced with TensorFlow Lite predictions
-  const [results, setResults] = useState<{ 
-    prediction: string;
-    confidence: number;
-    riskLevel: 'low' | 'medium' | 'high';
-  } | null>(null);
+  const [results, setResults] = useState<PredictionResult | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
 
   useEffect(() => {
     const data = location.state?.imageData;
     if (data) {
       setImageData(data);
-      simulateAnalysis();
+      
+      // Initialize model and analyze image
+      initializeModelAndAnalyze(data);
     } else {
       // No image provided, redirect back to home
       navigate('/');
     }
   }, [location.state, navigate]);
 
-  // This function is a placeholder and would be replaced with actual TensorFlow Lite analysis
+  const initializeModelAndAnalyze = async (imageData: string) => {
+    setIsAnalyzing(true);
+    setModelError(null);
+    
+    try {
+      // Initialize the model
+      await modelService.initialize(MODEL_URL);
+      
+      // Analyze the image
+      await analyzeImage(imageData);
+    } catch (error) {
+      console.error('Model initialization error:', error);
+      setModelError('Failed to initialize the skin analysis model. Falling back to sample data.');
+      
+      // Fallback to sample data if model fails
+      simulateAnalysis();
+    }
+  };
+
+  const analyzeImage = async (imageData: string) => {
+    try {
+      const prediction = await modelService.predict(imageData);
+      setResults(prediction);
+    } catch (error) {
+      console.error('Analysis error:', error);
+      setModelError('Error analyzing the image. Falling back to sample data.');
+      simulateAnalysis();
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Fallback function if the model fails
   const simulateAnalysis = () => {
     setIsAnalyzing(true);
     
@@ -75,6 +110,13 @@ const Results: React.FC = () => {
         {/* Analysis section */}
         <div className="mb-8">
           <h2 className="text-xl font-medium mb-4">Analysis Results</h2>
+          
+          {modelError && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-md flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
+              <p className="text-amber-800 text-sm">{modelError}</p>
+            </div>
+          )}
           
           {isAnalyzing ? (
             <div className="bg-secondary/50 rounded-lg p-6 flex flex-col items-center">
