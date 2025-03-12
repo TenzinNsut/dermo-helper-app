@@ -22,6 +22,7 @@ npm i
 npm run dev
 ```
 
+```sh
 Clone the repository to your local machine
 Run npm install to install dependencies
 Run npx cap add ios and/or npx cap add android to add platforms
@@ -29,7 +30,7 @@ Run npm run build to build the web app
 Run npx cap sync to sync your web build to the native platforms
 Run npx cap open ios or npx cap open android to open the project in Xcode or Android Studio
 Build and run on your device or simulator from there
-
+```
 **Edit a file directly in GitHub**
 
 - Navigate to the desired file(s).
