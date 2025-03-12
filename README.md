@@ -2,7 +2,7 @@
 
 ## Project info
 
-**URL**: https://lovable.dev/projects/f231bd02-b9d6-4618-8f85-148b66ac96dd
+**URL**: https://preview--dermo-helper-app.lovable.app/results
 
 
 
