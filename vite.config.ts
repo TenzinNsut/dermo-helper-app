@@ -8,6 +8,22 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    fs: {
+      // Allow serving files from the root of the project
+      allow: ['..']
+    },
+    headers: {
+      // Set correct MIME type for ONNX files
+      'model-files': {
+        source: '**/*.onnx',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/octet-stream'
+          }
+        ]
+      }
+    }
   },
   plugins: [
     react(),
@@ -19,4 +35,10 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Ensure the ONNX file is handled correctly
+  optimizeDeps: {
+    exclude: ['onnxruntime-web']
+  },
+  // Configure how Vite processes assets
+  assetsInclude: ['**/*.onnx'],
 }));

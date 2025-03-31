@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, Share2, Download, ArrowRight } from 'lucide-react';
@@ -8,8 +7,15 @@ import ImagePreview from '@/components/ImagePreview';
 import { modelService, PredictionResult } from '@/services/modelService';
 import { useToast } from '@/hooks/use-toast';
 
-// You can replace this with the URL to your TFLite model
-const MODEL_URL = 'YOUR_MODEL_URL_HERE'; // TODO: Replace with actual model URL
+// Path to the model - try both ONNX and TensorFlow.js formats
+const MODEL_URL = '/models/student_model_quantized.onnx'; 
+const TF_MODEL_URL = '/models/model.json'; // TensorFlow.js model path if converted
+
+// Interface for analysis result
+interface AnalysisResult {
+  success: boolean;
+  usingFallback: boolean;
+}
 
 const Results: React.FC = () => {
   const location = useLocation();
@@ -19,6 +25,7 @@ const Results: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [results, setResults] = useState<PredictionResult | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
+  const [usingFallback, setUsingFallback] = useState(false);
 
   useEffect(() => {
     const data = location.state?.imageData;
@@ -36,13 +43,31 @@ const Results: React.FC = () => {
   const initializeModelAndAnalyze = async (imageData: string) => {
     setIsAnalyzing(true);
     setModelError(null);
+    setUsingFallback(false);
     
     try {
-      // Initialize the model
-      await modelService.initialize(MODEL_URL);
+      // Try to initialize with ONNX model first
+      try {
+        await modelService.initialize(MODEL_URL);
+        console.log("Tried to initialize with ONNX model");
+      } catch (onnxError) {
+        console.warn("Failed to initialize with ONNX model:", onnxError);
+        
+        // If ONNX fails, try TensorFlow.js model
+        try {
+          await modelService.initialize(TF_MODEL_URL);
+          console.log("Tried to initialize with TensorFlow.js model");
+        } catch (tfError) {
+          console.warn("Failed to initialize with TensorFlow.js model:", tfError);
+          // Both failed, but modelService should handle fallback
+        }
+      }
       
       // Analyze the image
-      await analyzeImage(imageData);
+      const result = await analyzeImage(imageData);
+      if (result && result.usingFallback) {
+        setUsingFallback(true);
+      }
     } catch (error) {
       console.error('Model initialization error:', error);
       setModelError('Failed to initialize the skin analysis model. Falling back to sample data.');
@@ -52,14 +77,18 @@ const Results: React.FC = () => {
     }
   };
 
-  const analyzeImage = async (imageData: string) => {
+  const analyzeImage = async (imageData: string): Promise<AnalysisResult | null> => {
     try {
       const prediction = await modelService.predict(imageData);
       setResults(prediction);
+      // Access the useFallback property via a type assertion
+      const modelServiceWithFallback = modelService as unknown as { useFallback: boolean };
+      return { success: true, usingFallback: modelServiceWithFallback.useFallback };
     } catch (error) {
       console.error('Analysis error:', error);
       setModelError('Error analyzing the image. Falling back to sample data.');
       simulateAnalysis();
+      return null;
     } finally {
       setIsAnalyzing(false);
     }
@@ -115,6 +144,15 @@ const Results: React.FC = () => {
             <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-md flex items-start gap-2">
               <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
               <p className="text-amber-800 text-sm">{modelError}</p>
+            </div>
+          )}
+
+          {usingFallback && !modelError && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-md flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+              <p className="text-blue-800 text-sm">
+                Using simplified analysis as the full model couldn't be loaded. Results are approximated.
+              </p>
             </div>
           )}
           
