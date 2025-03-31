@@ -98,23 +98,7 @@ The app uses a quantized ONNX model (`student_model_quantized.onnx`) for skin le
 - Always consult a healthcare professional for proper diagnosis and treatment.
 - The app may use a simplified fallback system if the ONNX model fails to load.
 
-## License
-
-MIT
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+## License MIT
 
 ```sh
 Clone the repository to your local machine
@@ -131,12 +115,26 @@ Build and run on your device or simulator from there
 
 This project is built with .
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
 
+   -Vite (Build tool)
+   -TypeScript (Programming language)
+   -React (Frontend framework)
+   -shadcn-ui (UI component library)
+   -Tailwind CSS (Styling)
+   -Capacitor (Mobile app development framework)
+   -TensorFlow.js (Machine learning library)
+   -@tanstack/react-query (Data fetching and state management)
+   -Sonner (Toast notifications)
+
+Additional notable libraries include:
+
+   -React Router (Routing)
+   -Recharts (Charts and graphs)
+   -React Hook Form (Form management)
+   -Lucide React (Icons)
+   -Next Themes (Theme management)
+
+The project is set up as a web application with mobile capabilities via Capacitor, leveraging modern web technologies for building a responsive and interactive skin cancer detection application.
 
 
 
