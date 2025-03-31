@@ -6,6 +6,8 @@ import ActionButton from '@/components/ActionButton';
 import ImagePreview from '@/components/ImagePreview';
 import { modelService, PredictionResult } from '@/services/modelService';
 import { useToast } from '@/hooks/use-toast';
+// Import html2pdf for PDF generation
+import html2pdf from 'html2pdf.js';
 
 // Path to the model - try both ONNX and TensorFlow.js formats
 const MODEL_URL = '/models/student_model_quantized.onnx'; 
@@ -213,8 +215,75 @@ const Results: React.FC = () => {
               icon={<Share2 className="w-4 h-4" />}
               className="text-sm"
               onClick={() => {
-                // Implementation for sharing would go here
-                alert('Share functionality would be implemented here');
+                // Improved sharing functionality
+                if (results && imageData) {
+                  // Basic text to share
+                  const shareText = `Skin Analysis Report: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence, ${results.riskLevel === 'low' ? 'Low' : results.riskLevel === 'medium' ? 'Medium' : 'High'} risk)`;
+                  
+                  // First try native share with text only (most compatible)
+                  if (navigator.share) {
+                    navigator.share({
+                      title: 'Skin Analysis Report',
+                      text: shareText
+                    }).then(() => {
+                      toast({
+                        title: 'Shared successfully',
+                        description: 'Report has been shared',
+                      });
+                    }).catch(err => {
+                      console.error('Basic share failed:', err);
+                      
+                      // Try clipboard as fallback
+                      if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(shareText)
+                          .then(() => {
+                            toast({
+                              title: 'Copied to clipboard',
+                              description: 'Report text has been copied to clipboard',
+                            });
+                          })
+                          .catch(clipErr => {
+                            console.error('Clipboard write failed:', clipErr);
+                            toast({
+                              title: 'Share failed',
+                              description: 'Unable to share the report',
+                              variant: 'destructive',
+                            });
+                          });
+                      } else {
+                        toast({
+                          title: 'Share failed',
+                          description: 'Unable to share the report',
+                          variant: 'destructive',
+                        });
+                      }
+                    });
+                  } else if (navigator.clipboard && navigator.clipboard.writeText) {
+                    // Fallback to clipboard
+                    navigator.clipboard.writeText(shareText)
+                      .then(() => {
+                        toast({
+                          title: 'Copied to clipboard',
+                          description: 'Report text has been copied to clipboard',
+                        });
+                      })
+                      .catch(clipErr => {
+                        console.error('Clipboard write failed:', clipErr);
+                        toast({
+                          title: 'Share failed',
+                          description: 'Unable to share the report',
+                          variant: 'destructive',
+                        });
+                      });
+                  } else {
+                    // Last resort - show in alert
+                    alert('Copy this report:\n\n' + shareText);
+                    toast({
+                      title: 'Share',
+                      description: 'Manual copy needed - sharing not supported on this device',
+                    });
+                  }
+                }
               }}
             >
               Share Results
@@ -225,8 +294,97 @@ const Results: React.FC = () => {
               icon={<Download className="w-4 h-4" />}
               className="text-sm"
               onClick={() => {
-                // Implementation for downloading would go here
-                alert('Download functionality would be implemented here');
+                // Generate and download a PDF report
+                if (results && imageData) {
+                  try {
+                    // Create a div for the report content
+                    const reportDiv = document.createElement('div');
+                    reportDiv.style.padding = '20px';
+                    reportDiv.style.fontFamily = 'Arial, sans-serif';
+                    
+                    // Add the report content with styling
+                    reportDiv.innerHTML = `
+                      <h1 style="color: #3b82f6; margin-bottom: 15px;">Skin Analysis Report</h1>
+                      <div style="margin-bottom: 20px;">
+                        <img src="${imageData}" style="max-width: 100%; max-height: 300px; border-radius: 8px;" />
+                      </div>
+                      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                        <tr style="border-bottom: 1px solid #eee;">
+                          <td style="padding: 10px 5px; font-weight: bold;">Analysis Result:</td>
+                          <td style="padding: 10px 5px;">${results.prediction}</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eee;">
+                          <td style="padding: 10px 5px; font-weight: bold;">Confidence:</td>
+                          <td style="padding: 10px 5px;">${Math.round(results.confidence * 100)}%</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #eee;">
+                          <td style="padding: 10px 5px; font-weight: bold;">Risk Level:</td>
+                          <td style="padding: 10px 5px;">${results.riskLevel === 'low' ? 'Low Risk' : 
+                                                    results.riskLevel === 'medium' ? 'Medium Risk' : 'High Risk'}</td>
+                        </tr>
+                      </table>
+                      <div style="margin-bottom: 15px;">
+                        <p>${results.riskLevel === 'low' 
+                          ? 'The image appears to show characteristics consistent with benign skin conditions.' 
+                          : results.riskLevel === 'medium'
+                          ? 'The image shows some concerning features that may require medical attention.'
+                          : 'The image shows features highly suggestive of a potential malignancy.'}</p>
+                      </div>
+                      ${results.riskLevel !== 'low' ? `
+                        <div style="padding: 10px; background-color: #fff8e1; border: 1px solid #ffe082; border-radius: 4px; margin-bottom: 20px;">
+                          <p style="color: #ff8f00; margin: 0; font-size: 12px;">Please consult with a healthcare professional as soon as possible for a proper evaluation.</p>
+                        </div>
+                      ` : ''}
+                      <div style="margin-top: 20px; font-size: 12px; color: #666;">
+                        Report generated on ${new Date().toLocaleString()}
+                      </div>
+                      <div style="margin-top: 10px; font-size: 10px; color: #999; text-align: center;">
+                        This is an AI-generated assessment and should not be considered as a medical diagnosis.
+                      </div>
+                    `;
+                    
+                    // Append to body temporarily (won't be visible)
+                    document.body.appendChild(reportDiv);
+                    
+                    // Generate PDF
+                    const pdfOptions = {
+                      margin: 10,
+                      filename: `skin-analysis-report-${new Date().toISOString().split('T')[0]}.pdf`,
+                      image: { type: 'jpeg', quality: 0.95 },
+                      html2canvas: { scale: 2, useCORS: true },
+                      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    };
+                    
+                    html2pdf().from(reportDiv).set(pdfOptions).save().then(() => {
+                      // Clean up the temporary div
+                      document.body.removeChild(reportDiv);
+                      
+                      toast({
+                        title: 'Report saved',
+                        description: 'The PDF analysis report has been downloaded',
+                      });
+                    }).catch(err => {
+                      console.error('PDF generation failed:', err);
+                      // Clean up the temporary div
+                      if (document.body.contains(reportDiv)) {
+                        document.body.removeChild(reportDiv);
+                      }
+                      
+                      toast({
+                        title: 'Save failed',
+                        description: 'Unable to generate the PDF report',
+                        variant: 'destructive',
+                      });
+                    });
+                  } catch (error) {
+                    console.error('Error saving report:', error);
+                    toast({
+                      title: 'Save failed',
+                      description: 'Unable to save the report',
+                      variant: 'destructive',
+                    });
+                  }
+                }
               }}
             >
               Save Report
