@@ -2,6 +2,11 @@
 
 A skin lesion detection app built with React, TypeScript, and ONNX Runtime for analysis of potential skin cancer.
 
+
+https://github.com/user-attachments/assets/d0ee26ab-bb76-4e5f-86aa-4caf3117493b
+
+
+
 ## Features
 
 - Capture photos using the device camera
