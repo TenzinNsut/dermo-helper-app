@@ -301,52 +301,20 @@ const Results: React.FC = () => {
       // Create PDF (with type assertion)
       const pdfDoc = (pdfMake as any).createPdf(documentDefinition);
       
-      // Check if this is a mobile web browser
-      const isMobileWeb = isMobileBrowser() && !isPlatform('android') && !isPlatform('ios');
-      
-      if (isMobileWeb) {
-        // Mobile web browser approach
-        await new Promise<void>((resolve, reject) => {
-          pdfDoc.getBase64((base64data: string) => {
-            try {
-              // Create data URL
-              const pdfUrl = `data:application/pdf;base64,${base64data}`;
-              
-              // Create link for download
-              const link = document.createElement('a');
-              link.href = pdfUrl;
-              link.download = fileName;
-              link.target = '_blank';
-              document.body.appendChild(link);
-              link.click();
-              
-              // Clean up
-              setTimeout(() => {
-                document.body.removeChild(link);
-                resolve();
-              }, 100);
-            } catch (err) {
-              console.error('Error in mobile web PDF download:', err);
-              reject(err);
-            }
-          });
+      // For ALL browsers (mobile and desktop), use the Blob approach which is most reliable
+      await new Promise<void>((resolve, reject) => {
+        pdfDoc.getBuffer((buffer: Uint8Array) => {
+          try {
+            // Create blob and download with FileSaver
+            const blob = new Blob([buffer], { type: 'application/pdf' });
+            saveAs(blob, fileName);
+            resolve();
+          } catch (err) {
+            console.error('Error in PDF download:', err);
+            reject(err);
+          }
         });
-      } else {
-        // Desktop browser approach
-        await new Promise<void>((resolve, reject) => {
-          pdfDoc.getBuffer((buffer: Uint8Array) => {
-            try {
-              // Create blob and download with FileSaver
-              const blob = new Blob([buffer], { type: 'application/pdf' });
-              saveAs(blob, fileName);
-              resolve();
-            } catch (err) {
-              console.error('Error in desktop PDF download:', err);
-              reject(err);
-            }
-          });
-        });
-      }
+      });
       
       toast({
         title: 'Report saved',
@@ -362,6 +330,55 @@ const Results: React.FC = () => {
         variant: 'destructive',
       });
       return false;
+    }
+  };
+
+  // Modify the share function for mobile web
+  const generateAndSharePdf = async (results: PredictionResult, imageData: string): Promise<void> => {
+    try {
+      // Process image for PDF compatibility
+      const compatibleImage = await convertWebPToJpeg(imageData);
+      
+      // For Web Share API, just share the text since most mobile browsers don't support sharing files
+      const shareText = `Skin Analysis Report: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence, ${results.riskLevel === 'low' ? 'Low' : results.riskLevel === 'medium' ? 'Medium' : 'High'} risk)`;
+      
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Skin Analysis Report',
+          text: shareText
+        });
+        
+        toast({
+          title: 'Shared successfully',
+          description: 'Report text has been shared',
+        });
+      } else {
+        // Fallback to clipboard
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareText);
+          
+          toast({
+            title: 'Copied to clipboard',
+            description: 'Report text has been copied to clipboard',
+          });
+        } else {
+          // Last resort - alert
+          alert('Copy this report:\n\n' + shareText);
+          
+          toast({
+            title: 'Share',
+            description: 'Manual copy needed - sharing not supported on this device',
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error sharing on mobile web:', error);
+      
+      toast({
+        title: 'Share failed',
+        description: 'Unable to share the report',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -427,9 +444,6 @@ const Results: React.FC = () => {
   // Helper function to share results with options including download
   const shareWithOptions = async (results: PredictionResult, imageData: string) => {
     try {
-      // Ensure image is in compatible format
-      const compatibleImage = await convertWebPToJpeg(imageData);
-      
       // Check if this is a native mobile app (Capacitor) vs mobile web browser
       const isNativeApp = isPlatform('android') || isPlatform('ios');
       const isMobileWeb = isMobileBrowser() && !isNativeApp;
@@ -484,7 +498,7 @@ const Results: React.FC = () => {
           return;
         } else if (choice === 'save') {
           // Save to downloads
-          const savedFile = await saveMobilePdf(results, compatibleImage, false);
+          const savedFile = await saveMobilePdf(results, imageData, false);
           if (savedFile) {
             toast({
               title: 'Report saved',
@@ -502,7 +516,7 @@ const Results: React.FC = () => {
         } else {
           // Share with apps
           // For native mobile app, save the PDF first then share it
-          const pdfFile = await saveMobilePdf(results, compatibleImage, true);
+          const pdfFile = await saveMobilePdf(results, imageData, true);
           
           if (pdfFile) {
             // Share the PDF file
@@ -519,9 +533,8 @@ const Results: React.FC = () => {
             });
           }
         }
-      } else if (isMobileWeb) {
-        // For mobile web browser
-        // Dialog for mobile web users
+      } else {
+        // For all web browsers (mobile or desktop)
         const choice = await new Promise<string>((resolve) => {
           // Create a simple dialog element
           const dialogDiv = document.createElement('div');
@@ -536,7 +549,7 @@ const Results: React.FC = () => {
           dialogDiv.style.alignItems = 'center';
           dialogDiv.style.justifyContent = 'center';
           
-          // Dialog content for mobile web
+          // Dialog content
           dialogDiv.innerHTML = `
             <div style="background: white; width: 80%; max-width: 300px; border-radius: 8px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
               <h3 style="margin: 0 0 16px; font-size: 18px; font-weight: 500;">Share Options</h3>
@@ -569,127 +582,11 @@ const Results: React.FC = () => {
           // User canceled
           return;
         } else if (choice === 'save') {
-          // Save PDF directly to downloads
-          await saveWebPdf(results, compatibleImage);
-        } else {
-          // Share using Web Share API if available
-          try {
-            // Generate PDF as base64
-            const documentDefinition = createPdfDefinition(results, compatibleImage);
-            const pdfDoc = (pdfMake as any).createPdf(documentDefinition);
-            
-            const base64Data = await new Promise<string>((resolve, reject) => {
-              pdfDoc.getBase64((data: string) => resolve(data));
-            });
-            
-            // Try Web Share API
-            if (navigator.share) {
-              // Create a text summary for sharing
-              const shareText = `Skin Analysis Report: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence, ${results.riskLevel === 'low' ? 'Low' : results.riskLevel === 'medium' ? 'Medium' : 'High'} risk)`;
-              
-              await navigator.share({
-                title: 'Skin Analysis Report',
-                text: shareText
-              });
-              
-              toast({
-                title: 'Shared successfully',
-                description: 'Report has been shared',
-              });
-            } else {
-              // Fallback to text-only sharing
-              shareTextOnly(results);
-            }
-          } catch (error) {
-            console.error('Error sharing on mobile web:', error);
-            shareTextOnly(results);
-          }
-        }
-      } else {
-        // Desktop web browser
-        // Just show a simpler dialog with download option
-        const choice = await new Promise<string>((resolve) => {
-          // Create a simple dialog element
-          const dialogDiv = document.createElement('div');
-          dialogDiv.style.position = 'fixed';
-          dialogDiv.style.top = '0';
-          dialogDiv.style.left = '0';
-          dialogDiv.style.width = '100%';
-          dialogDiv.style.height = '100%';
-          dialogDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
-          dialogDiv.style.zIndex = '9999';
-          dialogDiv.style.display = 'flex';
-          dialogDiv.style.alignItems = 'center';
-          dialogDiv.style.justifyContent = 'center';
-          
-          // Dialog content for desktop
-          dialogDiv.innerHTML = `
-            <div style="background: white; width: 80%; max-width: 300px; border-radius: 8px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
-              <h3 style="margin: 0 0 16px; font-size: 18px; font-weight: 500;">Share Options</h3>
-              <button id="save-btn" style="display: block; width: 100%; background: #22c55e; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Download PDF</button>
-              <button id="copy-btn" style="display: block; width: 100%; background: #3b82f6; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Copy to Clipboard</button>
-              <button id="cancel-btn" style="display: block; width: 100%; background: #f3f4f6; color: #374151; border: none; padding: 12px; border-radius: 4px; font-size: 14px;">Cancel</button>
-            </div>
-          `;
-          
-          document.body.appendChild(dialogDiv);
-          
-          // Add click handlers
-          document.getElementById('save-btn')?.addEventListener('click', () => {
-            document.body.removeChild(dialogDiv);
-            resolve('save');
-          });
-          
-          document.getElementById('copy-btn')?.addEventListener('click', () => {
-            document.body.removeChild(dialogDiv);
-            resolve('copy');
-          });
-          
-          document.getElementById('cancel-btn')?.addEventListener('click', () => {
-            document.body.removeChild(dialogDiv);
-            resolve('cancel');
-          });
-        });
-        
-        if (choice === 'cancel') {
-          // User canceled
-          return;
-        } else if (choice === 'save') {
-          // Save PDF
-          await saveWebPdf(results, compatibleImage);
-        } else if (choice === 'copy') {
-          // Copy text to clipboard
-          const shareText = `Skin Analysis Report: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence, ${results.riskLevel === 'low' ? 'Low' : results.riskLevel === 'medium' ? 'Medium' : 'High'} risk)`;
-          
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(shareText);
-            toast({
-              title: 'Copied to clipboard',
-              description: 'Report text has been copied to clipboard',
-            });
-          } else {
-            // Fallback for older browsers
-            const textArea = document.createElement('textarea');
-            textArea.value = shareText;
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            try {
-              document.execCommand('copy');
-              toast({
-                title: 'Copied to clipboard',
-                description: 'Report text has been copied to clipboard',
-              });
-            } catch (err) {
-              console.error('Fallback: Unable to copy to clipboard', err);
-              toast({
-                title: 'Copy failed',
-                description: 'Please select and copy the text manually',
-                variant: 'destructive',
-              });
-            }
-            document.body.removeChild(textArea);
-          }
+          // Save PDF directly to downloads using file-saver
+          await saveWebPdf(results, imageData);
+        } else if (choice === 'share') {
+          // Share using our specialized mobile web sharing function
+          await generateAndSharePdf(results, imageData);
         }
       }
     } catch (error) {
