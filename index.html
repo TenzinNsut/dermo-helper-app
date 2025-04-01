@@ -37,10 +37,25 @@
             (e.message.includes('memory') || 
              e.message.includes('allocation') || 
              e.message.includes('wasm'))) {
-          window.location.href = '/_fallback.html';
+          window.location.href = '/_fallback';
           return;
         }
       });
+
+      // Create light version for mobile browsers
+      if (isMobileBrowser()) {
+        console.log('Mobile browser detected, using light version');
+        // Set a flag to use the lighter model version
+        window.useLightVersion = true;
+        
+        // Add a timeout to check loading progress and redirect if necessary
+        setTimeout(function() {
+          if (!window.appLoaded) {
+            console.log('App taking too long to load on mobile, redirecting to fallback page');
+            window.location.href = '/_fallback';
+          }
+        }, 10000); // 10 second timeout
+      }
     </script>
   </head>
 
@@ -56,5 +71,11 @@
     <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
     <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Mark when app has loaded successfully
+      window.addEventListener('load', function() {
+        window.appLoaded = true;
+      });
+    </script>
   </body>
 </html>

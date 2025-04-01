@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/_fallback", "destination": "/fallback.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
