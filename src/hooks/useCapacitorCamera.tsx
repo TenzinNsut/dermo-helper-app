@@ -1,4 +1,3 @@
-
 import { useState, useRef } from 'react';
 import { Camera, CameraResultType, CameraSource, Photo } from '@capacitor/camera';
 
@@ -25,11 +24,19 @@ export function useCapacitorCamera(): CapacitorCameraHookReturn {
         quality: 90,
         allowEditing: false,
         resultType: CameraResultType.DataUrl,
-        source: CameraSource.Camera
+        source: CameraSource.Camera,
+        width: 1200,
+        height: 1200,
+        correctOrientation: true,
+        preserveAspectRatio: true
       });
       
       if (image.dataUrl) {
+        console.log('Camera image captured successfully');
         setCapturedImage(image.dataUrl);
+      } else {
+        console.error('No dataUrl in camera result');
+        setError('Could not process the captured image');
       }
       
       setIsLoading(false);
@@ -49,11 +56,19 @@ export function useCapacitorCamera(): CapacitorCameraHookReturn {
         quality: 90,
         allowEditing: false,
         resultType: CameraResultType.DataUrl,
-        source: CameraSource.Photos
+        source: CameraSource.Photos,
+        width: 1200,
+        height: 1200,
+        correctOrientation: true,
+        preserveAspectRatio: true
       });
       
       if (image.dataUrl) {
+        console.log('Gallery image selected successfully');
         setCapturedImage(image.dataUrl);
+      } else {
+        console.error('No dataUrl in gallery result');
+        setError('Could not process the selected image');
       }
       
       setIsLoading(false);

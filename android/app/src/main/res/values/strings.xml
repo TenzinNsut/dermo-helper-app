@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">dermo-helper-app</string>
+    <string name="title_activity_main">dermo-helper-app</string>
+    <string name="package_name">app.lovable.f231bd02b9d646188f85148b66ac96dd</string>
+    <string name="custom_url_scheme">app.lovable.f231bd02b9d646188f85148b66ac96dd</string>
+</resources>
