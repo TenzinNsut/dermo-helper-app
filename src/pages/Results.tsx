@@ -31,7 +31,8 @@ interface AnalysisResult {
 
 // Helper function to detect mobile browsers
 const isMobileBrowser = () => {
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 };
 
 const Results: React.FC = () => {
@@ -274,12 +275,6 @@ const Results: React.FC = () => {
     }
   };
 
-  // Helper function to check if user is on a mobile browser
-  const isMobileBrowser = (): boolean => {
-    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-    return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
-  };
-
   // Save PDF report on web browsers (both desktop and mobile)
   const saveWebPdf = async (results: PredictionResult, imageData: string): Promise<boolean> => {
     try {
@@ -294,305 +289,159 @@ const Results: React.FC = () => {
       // Create PDF content
       const documentDefinition = createPdfDefinition(results, compatibleImage);
       
-      // Timestamp for filename
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const fileName = `DermoHelper-Report-${timestamp}.pdf`;
+      // Create simple filename
+      const timestamp = new Date().toISOString().split('T')[0];
+      const fileName = `dermohelper-report-${timestamp}.pdf`;
       
-      // Create PDF (with type assertion)
+      // Create PDF with type assertion
       const pdfDoc = (pdfMake as any).createPdf(documentDefinition);
       
-      // For ALL browsers (mobile and desktop), use the Blob approach which is most reliable
-      await new Promise<void>((resolve, reject) => {
-        pdfDoc.getBuffer((buffer: Uint8Array) => {
-          try {
-            // Create blob and download with FileSaver
-            const blob = new Blob([buffer], { type: 'application/pdf' });
-            saveAs(blob, fileName);
-            resolve();
-          } catch (err) {
-            console.error('Error in PDF download:', err);
-            reject(err);
+      // Use the simplest most reliable approach
+      return new Promise<boolean>((resolve) => {
+        try {
+          // Download approach for mobile browsers
+          if (isMobileBrowser()) {
+            // Generate base64 and use a data URL download
+            pdfDoc.getBase64((base64: string) => {
+              try {
+                const pdfDataUri = `data:application/pdf;base64,${base64}`;
+                
+                // Create an anchor element for download
+                const downloadLink = document.createElement('a');
+                downloadLink.href = pdfDataUri;
+                downloadLink.download = fileName;
+                downloadLink.style.display = 'none';
+                
+                // Append to body, click to trigger download, then remove
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                
+                // Some browsers need time to process the click
+                setTimeout(() => {
+                  document.body.removeChild(downloadLink);
+                  
+                  toast({
+                    title: 'Report ready',
+                    description: 'PDF has been downloaded to your device',
+                  });
+                  
+                  resolve(true);
+                }, 100);
+              } catch (err) {
+                console.error('Error creating download link:', err);
+                
+                toast({
+                  title: 'Save failed',
+                  description: 'Unable to save PDF. Please try again.',
+                  variant: 'destructive',
+                });
+                
+                resolve(false);
+              }
+            });
+          } else {
+            // For desktop browsers use FileServer
+            pdfDoc.getBuffer((buffer: Uint8Array) => {
+              try {
+                const blob = new Blob([buffer], { type: 'application/pdf' });
+                saveAs(blob, fileName);
+                
+                toast({
+                  title: 'Report ready',
+                  description: 'PDF has been downloaded to your device',
+                });
+                
+                resolve(true);
+              } catch (err) {
+                console.error('Error saving PDF with blob:', err);
+                
+                toast({
+                  title: 'Save failed',
+                  description: 'Unable to save PDF. Please try again.',
+                  variant: 'destructive',
+                });
+                
+                resolve(false);
+              }
+            });
           }
-        });
+        } catch (err) {
+          console.error('Unexpected error in PDF generation:', err);
+          
+          toast({
+            title: 'Save failed',
+            description: 'Unable to generate PDF. Please try again.',
+            variant: 'destructive',
+          });
+          
+          resolve(false);
+        }
       });
-      
-      toast({
-        title: 'Report saved',
-        description: 'PDF has been downloaded to your device',
-      });
-      
-      return true;
     } catch (error) {
-      console.error('Error saving PDF on web:', error);
+      console.error('Error in saveWebPdf:', error);
+      
       toast({
         title: 'Save failed',
-        description: 'Unable to save the report. Please try again.',
+        description: 'Unable to generate the report. Please try again.',
         variant: 'destructive',
       });
+      
       return false;
     }
   };
 
-  // Modify the share function for mobile web
-  const generateAndSharePdf = async (results: PredictionResult, imageData: string): Promise<void> => {
+  // Simplified text-only sharing for mobile web browsers
+  const shareResults = async (results: PredictionResult): Promise<boolean> => {
     try {
-      // Process image for PDF compatibility
-      const compatibleImage = await convertWebPToJpeg(imageData);
+      // Create simple text summary to share
+      const shareText = `DermoHelper Analysis: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence, ${results.riskLevel === 'low' ? 'Low' : results.riskLevel === 'medium' ? 'Medium' : 'High'} risk level)`;
       
-      // For Web Share API, just share the text since most mobile browsers don't support sharing files
-      const shareText = `Skin Analysis Report: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence, ${results.riskLevel === 'low' ? 'Low' : results.riskLevel === 'medium' ? 'Medium' : 'High'} risk)`;
-      
+      // First try Web Share API (works on most mobile browsers)
       if (navigator.share) {
         await navigator.share({
-          title: 'Skin Analysis Report',
+          title: 'Skin Analysis Results',
           text: shareText
         });
         
         toast({
           title: 'Shared successfully',
-          description: 'Report text has been shared',
+          description: 'Analysis results have been shared',
         });
-      } else {
-        // Fallback to clipboard
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(shareText);
-          
-          toast({
-            title: 'Copied to clipboard',
-            description: 'Report text has been copied to clipboard',
-          });
-        } else {
-          // Last resort - alert
-          alert('Copy this report:\n\n' + shareText);
-          
-          toast({
-            title: 'Share',
-            description: 'Manual copy needed - sharing not supported on this device',
-          });
-        }
+        
+        return true;
       }
-    } catch (error) {
-      console.error('Error sharing on mobile web:', error);
       
-      toast({
-        title: 'Share failed',
-        description: 'Unable to share the report',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  // Helper function to share text only (fallback)
-  const shareTextOnly = async (results: PredictionResult) => {
-    try {
-      const shareText = `Skin Analysis Report: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence, ${results.riskLevel === 'low' ? 'Low' : results.riskLevel === 'medium' ? 'Medium' : 'High'} risk)`;
-      
-      // Try Capacitor Share plugin first
-      if (isPlatform('android') || isPlatform('ios')) {
-        await Share.share({
-          title: 'Skin Analysis Report',
-          text: shareText,
-          dialogTitle: 'Share your skin analysis result'
-        });
-        
-        toast({
-          title: 'Shared successfully',
-          description: 'Report has been shared',
-        });
-      } 
-      // Try Web Share API
-      else if (navigator.share) {
-        await navigator.share({
-          title: 'Skin Analysis Report',
-          text: shareText
-        });
-        
-        toast({
-          title: 'Shared successfully',
-          description: 'Report has been shared',
-        });
-      } 
-      // Try clipboard as fallback
-      else if (navigator.clipboard && navigator.clipboard.writeText) {
+      // Otherwise try clipboard
+      if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(shareText);
         
         toast({
           title: 'Copied to clipboard',
-          description: 'Report text has been copied to clipboard',
+          description: 'Results copied and ready to paste',
         });
-      } 
-      // Last resort - alert
-      else {
-        alert('Copy this report:\n\n' + shareText);
         
-        toast({
-          title: 'Share',
-          description: 'Manual copy needed - sharing not supported on this device',
-        });
+        return true;
       }
+      
+      // Last resort fallback - show alert with text to copy manually
+      alert('Copy this result:\n\n' + shareText);
+      
+      toast({
+        title: 'Manual copy needed',
+        description: 'Please copy the text from the alert box',
+      });
+      
+      return true;
     } catch (error) {
-      console.error('Error sharing text:', error);
+      console.error('Error sharing results:', error);
       
       toast({
         title: 'Share failed',
-        description: 'Unable to share the report',
+        description: 'Unable to share results. Please try again.',
         variant: 'destructive',
       });
-    }
-  };
-
-  // Helper function to share results with options including download
-  const shareWithOptions = async (results: PredictionResult, imageData: string) => {
-    try {
-      // Check if this is a native mobile app (Capacitor) vs mobile web browser
-      const isNativeApp = isPlatform('android') || isPlatform('ios');
-      const isMobileWeb = isMobileBrowser() && !isNativeApp;
       
-      if (isNativeApp) {
-        // On native mobile app (Android/iOS), show a custom dialog to choose between sharing and saving
-        const choice = await new Promise<string>((resolve) => {
-          // Create a simple dialog element
-          const dialogDiv = document.createElement('div');
-          dialogDiv.style.position = 'fixed';
-          dialogDiv.style.top = '0';
-          dialogDiv.style.left = '0';
-          dialogDiv.style.width = '100%';
-          dialogDiv.style.height = '100%';
-          dialogDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
-          dialogDiv.style.zIndex = '9999';
-          dialogDiv.style.display = 'flex';
-          dialogDiv.style.alignItems = 'center';
-          dialogDiv.style.justifyContent = 'center';
-          
-          // Dialog content
-          dialogDiv.innerHTML = `
-            <div style="background: white; width: 80%; max-width: 300px; border-radius: 8px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
-              <h3 style="margin: 0 0 16px; font-size: 18px; font-weight: 500;">Share Options</h3>
-              <button id="share-btn" style="display: block; width: 100%; background: #3b82f6; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Share with Apps</button>
-              <button id="save-btn" style="display: block; width: 100%; background: #22c55e; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Save to Downloads</button>
-              <button id="cancel-btn" style="display: block; width: 100%; background: #f3f4f6; color: #374151; border: none; padding: 12px; border-radius: 4px; font-size: 14px;">Cancel</button>
-            </div>
-          `;
-          
-          document.body.appendChild(dialogDiv);
-          
-          // Add click handlers
-          document.getElementById('share-btn')?.addEventListener('click', () => {
-            document.body.removeChild(dialogDiv);
-            resolve('share');
-          });
-          
-          document.getElementById('save-btn')?.addEventListener('click', () => {
-            document.body.removeChild(dialogDiv);
-            resolve('save');
-          });
-          
-          document.getElementById('cancel-btn')?.addEventListener('click', () => {
-            document.body.removeChild(dialogDiv);
-            resolve('cancel');
-          });
-        });
-        
-        if (choice === 'cancel') {
-          // User canceled
-          return;
-        } else if (choice === 'save') {
-          // Save to downloads
-          const savedFile = await saveMobilePdf(results, imageData, false);
-          if (savedFile) {
-            toast({
-              title: 'Report saved',
-              description: `PDF saved to ${savedFile.path || 'device storage'}`,
-            });
-            
-            // For better user experience, let the user know they can find it in their files app
-            setTimeout(() => {
-              toast({
-                title: 'Tip',
-                description: 'Open Files app to view the PDF in Documents or Downloads folder',
-              });
-            }, 2000);
-          }
-        } else {
-          // Share with apps
-          // For native mobile app, save the PDF first then share it
-          const pdfFile = await saveMobilePdf(results, imageData, true);
-          
-          if (pdfFile) {
-            // Share the PDF file
-            await Share.share({
-              title: 'Skin Analysis Report',
-              text: `Analysis results: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence)`,
-              url: pdfFile.uri,
-              dialogTitle: 'Share your skin analysis report'
-            });
-            
-            toast({
-              title: 'Shared successfully',
-              description: 'Report has been shared',
-            });
-          }
-        }
-      } else {
-        // For all web browsers (mobile or desktop)
-        const choice = await new Promise<string>((resolve) => {
-          // Create a simple dialog element
-          const dialogDiv = document.createElement('div');
-          dialogDiv.style.position = 'fixed';
-          dialogDiv.style.top = '0';
-          dialogDiv.style.left = '0';
-          dialogDiv.style.width = '100%';
-          dialogDiv.style.height = '100%';
-          dialogDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
-          dialogDiv.style.zIndex = '9999';
-          dialogDiv.style.display = 'flex';
-          dialogDiv.style.alignItems = 'center';
-          dialogDiv.style.justifyContent = 'center';
-          
-          // Dialog content
-          dialogDiv.innerHTML = `
-            <div style="background: white; width: 80%; max-width: 300px; border-radius: 8px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
-              <h3 style="margin: 0 0 16px; font-size: 18px; font-weight: 500;">Share Options</h3>
-              <button id="share-btn" style="display: block; width: 100%; background: #3b82f6; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Share with Apps</button>
-              <button id="save-btn" style="display: block; width: 100%; background: #22c55e; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Save to Downloads</button>
-              <button id="cancel-btn" style="display: block; width: 100%; background: #f3f4f6; color: #374151; border: none; padding: 12px; border-radius: 4px; font-size: 14px;">Cancel</button>
-            </div>
-          `;
-          
-          document.body.appendChild(dialogDiv);
-          
-          // Add click handlers
-          document.getElementById('share-btn')?.addEventListener('click', () => {
-            document.body.removeChild(dialogDiv);
-            resolve('share');
-          });
-          
-          document.getElementById('save-btn')?.addEventListener('click', () => {
-            document.body.removeChild(dialogDiv);
-            resolve('save');
-          });
-          
-          document.getElementById('cancel-btn')?.addEventListener('click', () => {
-            document.body.removeChild(dialogDiv);
-            resolve('cancel');
-          });
-        });
-        
-        if (choice === 'cancel') {
-          // User canceled
-          return;
-        } else if (choice === 'save') {
-          // Save PDF directly to downloads using file-saver
-          await saveWebPdf(results, imageData);
-        } else if (choice === 'share') {
-          // Share using our specialized mobile web sharing function
-          await generateAndSharePdf(results, imageData);
-        }
-      }
-    } catch (error) {
-      console.error('Error with share options:', error);
-      // Fallback to text sharing
-      shareTextOnly(results);
+      return false;
     }
   };
 
@@ -789,20 +638,18 @@ const Results: React.FC = () => {
               icon={<Share2 className="w-4 h-4" />}
               className="text-sm"
               onClick={async () => {
-                // Share results with PDF
-                if (results && imageData) {
+                // Share results as text (more reliable)
+                if (results) {
                   try {
-                    // Show loading toast
-                    toast({
-                      title: 'Preparing report',
-                      description: 'Please wait...',
-                    });
-                    
-                    // Share with options
-                    await shareWithOptions(results, imageData);
+                    // Share directly using our simplified sharing function
+                    await shareResults(results);
                   } catch (error) {
-                    console.error('Error preparing PDF for sharing:', error);
-                    shareTextOnly(results);
+                    console.error('Error sharing results:', error);
+                    toast({
+                      title: 'Share failed',
+                      description: 'Unable to share results. Please try again.',
+                      variant: 'destructive',
+                    });
                   }
                 }
               }}
