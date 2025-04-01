@@ -4,19 +4,22 @@ This project develops an application for skin lesion detection, aimed at classif
 
 https://github.com/user-attachments/assets/d0ee26ab-bb76-4e5f-86aa-4caf3117493b
 
+## Usage
+
+1. Launch the app
+2. Capture an image or select from the gallery
+3. The app will analyze the image and provide a classification:
+   - Low Risk (Benign)
+   - Medium Risk (Potentially Malignant)
+   - High Risk (Likely Malignant)
+4. Review the analysis and confidence score
+5. Share or save the results 
+
 ### Key Achievements
 - Trained a **Teacher Model** (EfficientNet-B4) with high sensitivity (94.39%) and good overall performance (accuracy: 80.14%, ROC-AUC: 0.9519).
 - Distilled knowledge to a **Student Model** (MobileNetV3-Large) using MAG-KD, improving its performance significantly over the initial model.
 - Performed **hyperparameter tuning** on the Distilled Student Model, achieving an accuracy of 86.13%, sensitivity of 88.27%, specificity of 85.61%, and ROC-AUC of 0.9539.
 - Converted the model to ONNX format, optimized it with quantization, and deployed it on a mobile app using a React/Capacitor tech stack with TensorFlow.js for inference.
-
-## Features
-
-- Capture photos using the device camera
-- Select images from your photo gallery
-- Analyze skin lesions for potential malignancy
-- Get risk assessment with probability scores
-- Simple and intuitive UI
 
 ## Methodology
 
@@ -212,17 +215,6 @@ The app uses a quantized ONNX model (`student_model_quantized.onnx`) for skin le
 - Uses ImageNet normalization (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 - Outputs probabilities for benign/malignant classes
 - Has fallback logic if the model fails to load
-
-## Usage
-
-1. Launch the app
-2. Capture an image or select from the gallery
-3. The app will analyze the image and provide a classification:
-   - Low Risk (Benign)
-   - Medium Risk (Potentially Malignant)
-   - High Risk (Likely Malignant)
-4. Review the analysis and confidence score
-5. Share or save the results (in development)
 
 ## Important Notes
 
