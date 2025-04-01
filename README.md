@@ -3,11 +3,8 @@
 DermoHelper is a mobile application designed to assist in the early detection of skin cancer through advanced artificial intelligence. The app allows users to capture images of skin lesions and receive instant analysis using machine learning technology.
 
 
-
 https://github.com/user-attachments/assets/a98eb130-4e2d-4199-8235-b6e3cace18e6
 
-
-
 ### Web Version
 The web version of DermoHelper is available at:
 [https://dermo-helper-app.vercel.app](https://dermo-helper-app.vercel.app)
@@ -17,39 +14,21 @@ The Android app can be downloaded from:
 [Aptoide Store](https://dermo-helper.en.aptoide.com/)
 
 
-## Features
+### Objectives
+- **Develop a High-Performing Model**: Achieve high sensitivity (>90%) to minimize false negatives (missing malignant cases), while maintaining good specificity (>80%) and accuracy (>80%).
+- **Optimize for Mobile Deployment**: Create a lightweight model that runs efficiently on mobile devices without sacrificing performance.
+- **Build a User-Friendly App**: Develop a mobile app that allows users to capture a skin lesion image, run inference, and view the prediction (benign or malignant) with the probability.
 
-- **Image Capture**: Use your device's camera to take high-quality photos of skin lesions
-- **AI Analysis**: On-device processing using a trained model to analyze skin images
-- **Risk Assessment**: Receive assessment of potential risks based on image analysis
-- **PDF Reports**: Generate and share detailed PDF reports of analysis results
-- **Privacy-Focused**: All processing happens locally on your device with no external data transmission
-
-## Technology Stack
-
-- **Frontend**: React with TypeScript
-- **UI Framework**: Tailwind CSS with shadcn-ui components
-- **Mobile Framework**: Capacitor for cross-platform deployment
-- **Machine Learning**: TensorFlow.js with ONNX Runtime for on-device inference
-- **PDF Generation**: PDF creation and sharing capabilities
-
-## Deployment Options
-
-### Web Version
-
-The web version of DermoHelper is available at:
-[https://dermo-helper-app.vercel.app](https://dermo-helper-app.vercel.app)
-
-### Mobile App
-
-The Android app can be downloaded from:
-[Aptoide Store](https://dermo-helper.en.aptoide.com/)
+### Key Achievements
+- Trained a **Teacher Model** (EfficientNet-B4) with high sensitivity (94.39%) and good overall performance (accuracy: 80.14%, ROC-AUC: 0.9519).
+- Distilled knowledge to a **Student Model** (MobileNetV3-Large) using MAG-KD, improving its performance significantly over the initial model.
+- Performed **hyperparameter tuning** on the Distilled Student Model, achieving an accuracy of 86.13%, sensitivity of 88.27%, specificity of 85.61%, and ROC-AUC of 0.9539.
+- Converted the model to ONNX format, optimized it with quantization, and deployed it on a mobile app using a React/Capacitor tech stack with TensorFlow.js for inference.
 
 ## Important Note
 
 DermoHelper is designed as a supplementary tool to assist healthcare professionals and should not be used as a replacement for professional medical diagnosis. Always consult with a qualified healthcare provider for proper diagnosis and treatment of skin conditions.
 
-## Development
 
 ### Prerequisites
 
