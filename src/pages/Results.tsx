@@ -16,8 +16,8 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { isPlatform } from '@ionic/core';
 
-// Initialize pdfmake with fonts
-pdfMake.vfs = pdfFonts.pdfMake ? pdfFonts.pdfMake.vfs : pdfFonts.vfs;
+// Initialize pdfMake with fonts (with type assertion)
+(pdfMake as any).vfs = pdfFonts.pdfMake ? pdfFonts.pdfMake.vfs : pdfFonts.vfs;
 
 // Path to the model - try both ONNX and TensorFlow.js formats
 const MODEL_URL = '/models/student_model_quantized.onnx'; 
@@ -28,6 +28,11 @@ interface AnalysisResult {
   success: boolean;
   usingFallback: boolean;
 }
+
+// Helper function to detect mobile browsers
+const isMobileBrowser = () => {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+};
 
 const Results: React.FC = () => {
   const location = useLocation();
@@ -269,53 +274,86 @@ const Results: React.FC = () => {
     }
   };
 
-  // Save PDF on web browsers
-  const saveWebPdf = async (results: PredictionResult, imageData: string) => {
+  // Helper function to check if user is on a mobile browser
+  const isMobileBrowser = (): boolean => {
+    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+    return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+  };
+
+  // Save PDF report on web browsers (both desktop and mobile)
+  const saveWebPdf = async (results: PredictionResult, imageData: string): Promise<boolean> => {
     try {
       toast({
         title: 'Generating PDF',
         description: 'Please wait...',
       });
       
-      try {
-        // Process image for PDF compatibility
-        const compatibleImage = await convertWebPToJpeg(imageData);
-        
-        // Generate PDF with pdfmake
-        const pdfDoc = pdfMake.createPdf(createPdfDefinition(results, compatibleImage));
-        
-        // Timestamp for filename
-        const timestamp = new Date().getTime();
-        const fileName = `skin-report-${timestamp}.pdf`;
-        
-        // Use getBuffer and file-saver instead of the built-in download method
+      // Process image for PDF compatibility
+      const compatibleImage = await convertWebPToJpeg(imageData);
+      
+      // Create PDF content
+      const documentDefinition = createPdfDefinition(results, compatibleImage);
+      
+      // Timestamp for filename
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const fileName = `DermoHelper-Report-${timestamp}.pdf`;
+      
+      // Create PDF (with type assertion)
+      const pdfDoc = (pdfMake as any).createPdf(documentDefinition);
+      
+      // Check if this is a mobile web browser
+      const isMobileWeb = isMobileBrowser() && !isPlatform('android') && !isPlatform('ios');
+      
+      if (isMobileWeb) {
+        // Mobile web browser approach
         await new Promise<void>((resolve, reject) => {
-          pdfDoc.getBuffer((buffer) => {
+          pdfDoc.getBase64((base64data: string) => {
             try {
-              const blob = new Blob([buffer], { type: 'application/pdf' });
-              saveAs(blob, fileName);
-              resolve();
+              // Create data URL
+              const pdfUrl = `data:application/pdf;base64,${base64data}`;
+              
+              // Create link for download
+              const link = document.createElement('a');
+              link.href = pdfUrl;
+              link.download = fileName;
+              link.target = '_blank';
+              document.body.appendChild(link);
+              link.click();
+              
+              // Clean up
+              setTimeout(() => {
+                document.body.removeChild(link);
+                resolve();
+              }, 100);
             } catch (err) {
+              console.error('Error in mobile web PDF download:', err);
               reject(err);
             }
           });
         });
-        
-        toast({
-          title: 'Report saved',
-          description: 'PDF has been downloaded to your device',
+      } else {
+        // Desktop browser approach
+        await new Promise<void>((resolve, reject) => {
+          pdfDoc.getBuffer((buffer: Uint8Array) => {
+            try {
+              // Create blob and download with FileSaver
+              const blob = new Blob([buffer], { type: 'application/pdf' });
+              saveAs(blob, fileName);
+              resolve();
+            } catch (err) {
+              console.error('Error in desktop PDF download:', err);
+              reject(err);
+            }
+          });
         });
-        
-        return true;
-      } catch (processingError) {
-        console.error('Error processing image for PDF:', processingError);
-        toast({
-          title: 'Save failed',
-          description: 'Unable to process the image for the report.',
-          variant: 'destructive',
-        });
-        return false;
       }
+      
+      toast({
+        title: 'Report saved',
+        description: 'PDF has been downloaded to your device',
+      });
+      
+      return true;
     } catch (error) {
       console.error('Error saving PDF on web:', error);
       toast({
@@ -712,10 +750,11 @@ const Results: React.FC = () => {
                 // Generate and save a PDF report
                 if (results && imageData) {
                   try {
-                    const isMobile = isPlatform('android') || isPlatform('ios');
+                    // Check if this is a Capacitor app on a mobile device
+                    const isCapacitorApp = isPlatform('android') || isPlatform('ios');
                     
-                    if (isMobile) {
-                      // For mobile, save using Capacitor
+                    if (isCapacitorApp) {
+                      // For Capacitor app, save using Capacitor Filesystem
                       const savedFile = await saveMobilePdf(results, imageData, false);
                       
                       if (savedFile) {
@@ -733,8 +772,8 @@ const Results: React.FC = () => {
                         }, 2000);
                       }
                     } else {
-                      // For web browsers
-                      saveWebPdf(results, imageData);
+                      // For all web browsers (desktop or mobile)
+                      await saveWebPdf(results, imageData);
                     }
                   } catch (error) {
                     console.error('Error saving report:', error);
