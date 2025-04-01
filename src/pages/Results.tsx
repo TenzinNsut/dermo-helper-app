@@ -48,6 +48,47 @@ const Results: React.FC = () => {
     return dataUrl;
   };
 
+  // Convert WebP images to JPEG for better PDF compatibility
+  const convertWebPToJpeg = async (imageData: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      try {
+        // Create an image element to load the WebP
+        const img = new Image();
+        img.onload = () => {
+          // Create a canvas to draw and convert the image
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          
+          // Draw the image on the canvas
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Could not get canvas context'));
+            return;
+          }
+          
+          ctx.drawImage(img, 0, 0);
+          
+          // Convert to JPEG format
+          const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+          resolve(jpegDataUrl);
+        };
+        
+        img.onerror = (error) => {
+          console.error('Error loading image for conversion:', error);
+          // If conversion fails, return the original image
+          resolve(imageData);
+        };
+        
+        img.src = imageData;
+      } catch (error) {
+        console.error('Error in WebP conversion:', error);
+        // If anything goes wrong, return the original
+        resolve(imageData);
+      }
+    });
+  };
+
   // Create simplified PDF definition - focus on minimal structure for maximum compatibility
   const createPdfDefinition = (results: PredictionResult, imageData: string) => {
     const imageBase64 = getBase64FromDataUrl(imageData);
@@ -138,8 +179,11 @@ const Results: React.FC = () => {
         description: 'Please wait...',
       });
       
+      // Ensure image is in compatible format
+      const compatibleImage = await convertWebPToJpeg(imageData);
+      
       // Generate PDF with pdfmake - using binary output for better compatibility
-      const pdfDoc = pdfMake.createPdf(createPdfDefinition(results, imageData));
+      const pdfDoc = pdfMake.createPdf(createPdfDefinition(results, compatibleImage));
       
       // Create filename
       const timestamp = new Date().getTime();
@@ -226,28 +270,52 @@ const Results: React.FC = () => {
   };
 
   // Save PDF on web browsers
-  const saveWebPdf = (results: PredictionResult, imageData: string) => {
+  const saveWebPdf = async (results: PredictionResult, imageData: string) => {
     try {
       toast({
         title: 'Generating PDF',
         description: 'Please wait...',
       });
       
-      // Generate PDF with pdfmake
-      const pdfDoc = pdfMake.createPdf(createPdfDefinition(results, imageData));
-      
-      // Timestamp for filename
-      const timestamp = new Date().getTime();
-      
-      // Download the PDF directly to the user's device
-      pdfDoc.download(`skin-report-${timestamp}.pdf`);
-      
-      toast({
-        title: 'Report saved',
-        description: 'PDF has been downloaded to your device',
-      });
-      
-      return true;
+      try {
+        // Process image for PDF compatibility
+        const compatibleImage = await convertWebPToJpeg(imageData);
+        
+        // Generate PDF with pdfmake
+        const pdfDoc = pdfMake.createPdf(createPdfDefinition(results, compatibleImage));
+        
+        // Timestamp for filename
+        const timestamp = new Date().getTime();
+        const fileName = `skin-report-${timestamp}.pdf`;
+        
+        // Use getBuffer and file-saver instead of the built-in download method
+        await new Promise<void>((resolve, reject) => {
+          pdfDoc.getBuffer((buffer) => {
+            try {
+              const blob = new Blob([buffer], { type: 'application/pdf' });
+              saveAs(blob, fileName);
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          });
+        });
+        
+        toast({
+          title: 'Report saved',
+          description: 'PDF has been downloaded to your device',
+        });
+        
+        return true;
+      } catch (processingError) {
+        console.error('Error processing image for PDF:', processingError);
+        toast({
+          title: 'Save failed',
+          description: 'Unable to process the image for the report.',
+          variant: 'destructive',
+        });
+        return false;
+      }
     } catch (error) {
       console.error('Error saving PDF on web:', error);
       toast({
@@ -321,6 +389,9 @@ const Results: React.FC = () => {
   // Helper function to share results with options including download
   const shareWithOptions = async (results: PredictionResult, imageData: string) => {
     try {
+      // Ensure image is in compatible format
+      const compatibleImage = await convertWebPToJpeg(imageData);
+      
       const isMobile = isPlatform('android') || isPlatform('ios');
       
       if (isMobile) {
@@ -373,7 +444,7 @@ const Results: React.FC = () => {
           return;
         } else if (choice === 'save') {
           // Save to downloads
-          const savedFile = await saveMobilePdf(results, imageData, false);
+          const savedFile = await saveMobilePdf(results, compatibleImage, false);
           if (savedFile) {
             toast({
               title: 'Report saved',
@@ -391,7 +462,7 @@ const Results: React.FC = () => {
         } else {
           // Share with apps
           // For mobile, save the PDF first then share it
-          const pdfFile = await saveMobilePdf(results, imageData, true);
+          const pdfFile = await saveMobilePdf(results, compatibleImage, true);
           
           if (pdfFile) {
             // Share the PDF file

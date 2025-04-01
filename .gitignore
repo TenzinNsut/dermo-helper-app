@@ -7,14 +7,43 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+/.pnp
+.pnp.js
+
+# Build outputs
 dist
 dist-ssr
 *.local
+build/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Android/iOS build
+android/app/build/
+android/build/
+android/gradle/
+android/captures/
+android/.idea/
+android/*.iml
+android/.gradle/
+ios/build/
+ios/Pods/
+ios/DerivedData/
+
+# Capacitor related
+.capacitor/
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo
@@ -22,3 +51,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.project
+.classpath
+
+# Testing
+/coverage
+
+# Misc
+.cache/
+.temp/
+.tmp/

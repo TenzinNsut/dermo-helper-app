@@ -17,12 +17,20 @@ android {
             noCompress "tflite"
         }
     }
+    
     buildTypes {
-        release {
+        debug {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // For Aptoide, we need to sign but can use a default debug key for now
+            signingConfig signingConfigs.debug
+        }
     }
+    
     // For PDF handling
     packagingOptions {
         exclude 'META-INF/DEPENDENCIES'
