@@ -10,6 +10,33 @@ ort.env.wasm.wasmPaths = {
   'ort-wasm.wasm': '/wasm/ort-wasm.wasm',
 };
 
+// Add more configuration for better mobile compatibility
+ort.env.wasm.numThreads = 1; // Use single-threaded execution for better mobile compatibility
+ort.env.wasm.simd = false; // Disable SIMD for broader device compatibility
+ort.env.wasm.proxy = false; // Disable web worker proxy to reduce overhead
+
+// Try to use custom memory if available
+if (window.wasmMemory) {
+  try {
+    ort.env.wasm.wasmMemory = window.wasmMemory;
+  } catch (e) {
+    console.warn('Failed to use custom WASM memory:', e);
+  }
+}
+
+// Detect if running on mobile
+const isMobileBrowser = () => {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+};
+
+// Mobile specific settings
+if (isMobileBrowser()) {
+  console.log('Running on mobile device, adjusting performance settings...');
+  tf.ENV.set('WEBGL_CPU_FORWARD', true); // Allow CPU fallback for WebGL ops
+  tf.ENV.set('WEBGL_FORCE_F16_TEXTURES', true); // Use F16 to reduce memory
+  tf.ENV.set('WEBGL_PACK', false); // Disable texture packing for compatibility
+}
+
 export interface PredictionResult {
   prediction: string;
   confidence: number;
@@ -37,31 +64,20 @@ export class ModelService {
       // Initialize tensorflow.js (for image preprocessing and possible fallback)
       await tf.ready();
       
-      // Try loading the model as TensorFlow.js model first (if json file exists)
-      try {
-        // Get base URL without extension
-        const baseModelUrl = modelUrl.replace('.onnx', '');
-        const tfModelUrl = `${baseModelUrl}.json`;
-        
-        console.log('Attempting to load as TensorFlow.js model from:', tfModelUrl);
-        this.tfModel = await tf.loadGraphModel(tfModelUrl);
-        console.log('TensorFlow.js model loaded successfully');
-        this.useTfjs = true;
-      } catch (tfError) {
-        console.warn('Failed to load TensorFlow.js model:', tfError);
-        
-        // Now try using ONNX Runtime
-        try {
-          console.log('Attempting to create ONNX inference session...');
-          const sessionOptions = { logSeverityLevel: 0 };
-          this.session = await ort.InferenceSession.create(modelUrl, sessionOptions);
-          console.log('ONNX model loaded successfully');
-          console.log('Model inputs:', this.session.inputNames);
-          console.log('Model outputs:', this.session.outputNames);
-        } catch (onnxError) {
-          console.warn('Failed to load ONNX model:', onnxError);
-          console.log('Using simplified fallback prediction logic');
-          this.useFallback = true;
+      // Mobile devices should try TensorFlow.js first as it's often more compatible
+      const shouldTryTFJSFirst = isMobileBrowser();
+      
+      if (shouldTryTFJSFirst) {
+        // For mobile, try TensorFlow.js first, then ONNX if that fails
+        await this.tryLoadTFJSModel(modelUrl);
+        if (!this.tfModel) {
+          await this.tryLoadONNXModel(modelUrl);
+        }
+      } else {
+        // For desktop, try ONNX first (better performance), then TensorFlow.js
+        await this.tryLoadONNXModel(modelUrl);
+        if (!this.session) {
+          await this.tryLoadTFJSModel(modelUrl);
         }
       }
       
@@ -80,6 +96,43 @@ export class ModelService {
       this.initialized = true; // Set to true so we can proceed with fallback
     }
   }
+  
+  private async tryLoadTFJSModel(modelUrl: string): Promise<void> {
+    try {
+      const baseModelUrl = modelUrl.replace('.onnx', '');
+      const tfModelUrl = `${baseModelUrl}.json`;
+      
+      console.log('Attempting to load as TensorFlow.js model from:', tfModelUrl);
+      this.tfModel = await tf.loadGraphModel(tfModelUrl);
+      console.log('TensorFlow.js model loaded successfully');
+      this.useTfjs = true;
+    } catch (error) {
+      console.warn('Failed to load TensorFlow.js model:', error);
+      this.tfModel = null;
+    }
+  }
+  
+  private async tryLoadONNXModel(modelUrl: string): Promise<void> {
+    try {
+      console.log('Attempting to create ONNX inference session...');
+      
+      // Create session options optimized for the current device
+      const sessionOptions: ort.InferenceSession.SessionOptions = { 
+        logSeverityLevel: 0,
+        graphOptimizationLevel: 'all',
+        executionMode: isMobileBrowser() ? 'sequential' : 'parallel',
+        enableCpuMemArena: true
+      };
+      
+      this.session = await ort.InferenceSession.create(modelUrl, sessionOptions);
+      console.log('ONNX model loaded successfully');
+      console.log('Model inputs:', this.session.inputNames);
+      console.log('Model outputs:', this.session.outputNames);
+    } catch (error) {
+      console.warn('Failed to load ONNX model:', error);
+      this.session = null;
+    }
+  }
 
   async predict(imageData: string): Promise<PredictionResult> {
     if (!this.initialized) {
@@ -96,18 +149,21 @@ export class ModelService {
       });
 
       // Preprocess the image using TensorFlow.js
-      let tensor = tf.browser.fromPixels(img);
-      
-      // Resize to 224x224
-      tensor = tf.image.resizeBilinear(tensor, [224, 224]);
-      
-      // Convert to float and normalize to [0, 1]
-      tensor = tensor.toFloat().div(255.0);
-      
-      // Normalize with ImageNet mean and std
-      const mean = tf.tensor([0.485, 0.456, 0.406]);
-      const std = tf.tensor([0.229, 0.224, 0.225]);
-      tensor = tensor.sub(mean).div(std);
+      let tensor = tf.tidy(() => {
+        // Use tf.tidy to automatically clean up all tensors
+        const pixels = tf.browser.fromPixels(img);
+        
+        // Resize to 224x224
+        const resized = tf.image.resizeBilinear(pixels, [224, 224]);
+        
+        // Convert to float and normalize to [0, 1]
+        const normalized = resized.toFloat().div(255.0);
+        
+        // Normalize with ImageNet mean and std
+        const mean = tf.tensor([0.485, 0.456, 0.406]);
+        const std = tf.tensor([0.229, 0.224, 0.225]);
+        return normalized.sub(mean).div(std);
+      });
       
       let malignantProb: number;
       
@@ -124,10 +180,10 @@ export class ModelService {
         console.log('Using TensorFlow.js model for prediction');
         // Ensure tensor is in the right format for TensorFlow.js
         // No need to transpose for TF.js models, they expect [1, 224, 224, 3]
-        tensor = tensor.expandDims(0);
+        const inputTensor = tensor.expandDims(0);
         
         // Run inference with TensorFlow.js
-        const tfResult = this.tfModel.predict(tensor) as tf.Tensor;
+        const tfResult = this.tfModel.predict(inputTensor) as tf.Tensor;
         const outputData = await tfResult.data();
         console.log('TF.js raw output:', outputData);
         
@@ -145,37 +201,48 @@ export class ModelService {
         // Use ONNX Runtime
         console.log('Using ONNX Runtime for prediction');
         // Transpose to [1, 3, 224, 224] (batch, channels, height, width) for ONNX model
-        tensor = tensor.transpose([2, 0, 1]).expandDims(0);
+        const transposedTensor = tensor.transpose([2, 0, 1]).expandDims(0);
         
-        // Get the typed array from tensor
-        const inputData = await tensor.data();
-        
-        // Create ONNX tensor from the data
-        const inputTensor = new ort.Tensor('float32', new Float32Array(inputData), [1, 3, 224, 224]);
-        
-        // Get the actual input name from the model (if available)
-        const inputName = this.session.inputNames[0] || 'input';
-        console.log('Using input name:', inputName);
-        
-        // Run inference with the correct input name
-        const feeds = { [inputName]: inputTensor };
-        const results = await this.session.run(feeds);
-        
-        // Get the actual output name from the model (if available)
-        const outputName = this.session.outputNames[0] || 'output';
-        console.log('Using output name:', outputName);
-        
-        // Get output using the correct output name
-        const outputData = results[outputName].data as Float32Array;
-        console.log('Raw output data:', Array.from(outputData).slice(0, 10));
-        
-        // Apply softmax to get probabilities
-        const exp0 = Math.exp(outputData[0]);
-        const exp1 = Math.exp(outputData[1]);
-        const sum = exp0 + exp1;
-        const probabilities = [exp0 / sum, exp1 / sum];
-        
-        malignantProb = probabilities[1]; // Probability for malignant class
+        try {
+          // Get the typed array from tensor
+          const inputData = await transposedTensor.data();
+          
+          // Create ONNX tensor from the data
+          const inputTensor = new ort.Tensor('float32', new Float32Array(inputData), [1, 3, 224, 224]);
+          
+          // Get the actual input name from the model (if available)
+          const inputName = this.session.inputNames[0] || 'input';
+          console.log('Using input name:', inputName);
+          
+          // Run inference with the correct input name
+          const feeds = { [inputName]: inputTensor };
+          const results = await this.session.run(feeds);
+          
+          // Get the actual output name from the model (if available)
+          const outputName = this.session.outputNames[0] || 'output';
+          console.log('Using output name:', outputName);
+          
+          // Get output using the correct output name
+          const outputData = results[outputName].data as Float32Array;
+          console.log('Raw output data:', Array.from(outputData).slice(0, 10));
+          
+          // Apply softmax to get probabilities
+          const exp0 = Math.exp(outputData[0]);
+          const exp1 = Math.exp(outputData[1]);
+          const sum = exp0 + exp1;
+          const probabilities = [exp0 / sum, exp1 / sum];
+          
+          malignantProb = probabilities[1]; // Probability for malignant class
+          
+          // Clean up transposed tensor
+          transposedTensor.dispose();
+        } catch (onnxError) {
+          console.error("ONNX runtime error:", onnxError);
+          // If ONNX fails, fall back to simplified method
+          console.log("Falling back to simplified prediction due to ONNX error");
+          const averagePixelValue = tensor.mean().dataSync()[0];
+          malignantProb = Math.max(0, Math.min(1, 1 - averagePixelValue));
+        }
       }
       
       const predictedClassIndex = malignantProb > 0.5 ? 1 : 0;

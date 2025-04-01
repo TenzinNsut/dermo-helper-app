@@ -2,15 +2,57 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>dermo-helper-app</title>
-    <meta name="description" content="Lovable Generated Project" />
-    <meta name="author" content="Lovable" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>DermoHelper - Skin Cancer Detection Assistant</title>
+    <meta name="description" content="AI-powered skin cancer detection tool that analyzes images of skin lesions and provides instant risk assessments" />
+    <meta name="author" content="Tenzin" />
     <meta property="og:image" content="/og-image.png" />
+    <meta property="og:title" content="DermoHelper - Skin Cancer Detection Assistant" />
+    <meta property="og:description" content="AI-powered skin cancer detection tool that analyzes images of skin lesions and provides instant risk assessments" />
+    <meta name="theme-color" content="#1d4ed8" />
+    
+    <!-- iOS-specific meta tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    
+    <!-- Memory allocation for WASM -->
+    <script>
+      // Increase memory allocation for WebAssembly
+      const megaBytes = 512;
+      const memory = new WebAssembly.Memory({
+        initial: megaBytes / 16,
+        maximum: megaBytes / 16,
+        shared: true
+      });
+      window.wasmMemory = memory;
+      
+      // Detect mobile browsers and handle low memory conditions
+      function isMobileBrowser() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      }
+      
+      // Handle errors specially for mobile
+      window.addEventListener('error', function(e) {
+        if (isMobileBrowser() && 
+            (e.message.includes('memory') || 
+             e.message.includes('allocation') || 
+             e.message.includes('wasm'))) {
+          window.location.href = '/_fallback.html';
+          return;
+        }
+      });
+    </script>
   </head>
 
   <body>
     <div id="root"></div>
+    <noscript>
+      <div style="padding: 20px; text-align: center; font-family: sans-serif;">
+        <h1>JavaScript Required</h1>
+        <p>DermoHelper requires JavaScript to be enabled in your browser.</p>
+        <p>Please enable JavaScript and reload the page.</p>
+      </div>
+    </noscript>
     <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
     <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
     <script type="module" src="/src/main.tsx"></script>
