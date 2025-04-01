@@ -2,6 +2,21 @@
 
 DermoHelper is a mobile application designed to assist in the early detection of skin cancer through advanced artificial intelligence. The app allows users to capture images of skin lesions and receive instant analysis using machine learning technology.
 
+
+
+https://github.com/user-attachments/assets/a98eb130-4e2d-4199-8235-b6e3cace18e6
+
+
+
+### Web Version
+The web version of DermoHelper is available at:
+[https://dermo-helper-app.vercel.app](https://dermo-helper-app.vercel.app)
+
+### Mobile App
+The Android app can be downloaded from:
+[Aptoide Store](https://dermo-helper.en.aptoide.com/)
+
+
 ## Features
 
 - **Image Capture**: Use your device's camera to take high-quality photos of skin lesions
