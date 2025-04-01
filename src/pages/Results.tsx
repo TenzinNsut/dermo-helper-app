@@ -430,10 +430,12 @@ const Results: React.FC = () => {
       // Ensure image is in compatible format
       const compatibleImage = await convertWebPToJpeg(imageData);
       
-      const isMobile = isPlatform('android') || isPlatform('ios');
+      // Check if this is a native mobile app (Capacitor) vs mobile web browser
+      const isNativeApp = isPlatform('android') || isPlatform('ios');
+      const isMobileWeb = isMobileBrowser() && !isNativeApp;
       
-      if (isMobile) {
-        // On Android, show a custom dialog to choose between sharing and saving
+      if (isNativeApp) {
+        // On native mobile app (Android/iOS), show a custom dialog to choose between sharing and saving
         const choice = await new Promise<string>((resolve) => {
           // Create a simple dialog element
           const dialogDiv = document.createElement('div');
@@ -499,7 +501,7 @@ const Results: React.FC = () => {
           }
         } else {
           // Share with apps
-          // For mobile, save the PDF first then share it
+          // For native mobile app, save the PDF first then share it
           const pdfFile = await saveMobilePdf(results, compatibleImage, true);
           
           if (pdfFile) {
@@ -517,9 +519,178 @@ const Results: React.FC = () => {
             });
           }
         }
+      } else if (isMobileWeb) {
+        // For mobile web browser
+        // Dialog for mobile web users
+        const choice = await new Promise<string>((resolve) => {
+          // Create a simple dialog element
+          const dialogDiv = document.createElement('div');
+          dialogDiv.style.position = 'fixed';
+          dialogDiv.style.top = '0';
+          dialogDiv.style.left = '0';
+          dialogDiv.style.width = '100%';
+          dialogDiv.style.height = '100%';
+          dialogDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
+          dialogDiv.style.zIndex = '9999';
+          dialogDiv.style.display = 'flex';
+          dialogDiv.style.alignItems = 'center';
+          dialogDiv.style.justifyContent = 'center';
+          
+          // Dialog content for mobile web
+          dialogDiv.innerHTML = `
+            <div style="background: white; width: 80%; max-width: 300px; border-radius: 8px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+              <h3 style="margin: 0 0 16px; font-size: 18px; font-weight: 500;">Share Options</h3>
+              <button id="share-btn" style="display: block; width: 100%; background: #3b82f6; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Share with Apps</button>
+              <button id="save-btn" style="display: block; width: 100%; background: #22c55e; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Save to Downloads</button>
+              <button id="cancel-btn" style="display: block; width: 100%; background: #f3f4f6; color: #374151; border: none; padding: 12px; border-radius: 4px; font-size: 14px;">Cancel</button>
+            </div>
+          `;
+          
+          document.body.appendChild(dialogDiv);
+          
+          // Add click handlers
+          document.getElementById('share-btn')?.addEventListener('click', () => {
+            document.body.removeChild(dialogDiv);
+            resolve('share');
+          });
+          
+          document.getElementById('save-btn')?.addEventListener('click', () => {
+            document.body.removeChild(dialogDiv);
+            resolve('save');
+          });
+          
+          document.getElementById('cancel-btn')?.addEventListener('click', () => {
+            document.body.removeChild(dialogDiv);
+            resolve('cancel');
+          });
+        });
+        
+        if (choice === 'cancel') {
+          // User canceled
+          return;
+        } else if (choice === 'save') {
+          // Save PDF directly to downloads
+          await saveWebPdf(results, compatibleImage);
+        } else {
+          // Share using Web Share API if available
+          try {
+            // Generate PDF as base64
+            const documentDefinition = createPdfDefinition(results, compatibleImage);
+            const pdfDoc = (pdfMake as any).createPdf(documentDefinition);
+            
+            const base64Data = await new Promise<string>((resolve, reject) => {
+              pdfDoc.getBase64((data: string) => resolve(data));
+            });
+            
+            // Try Web Share API
+            if (navigator.share) {
+              // Create a text summary for sharing
+              const shareText = `Skin Analysis Report: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence, ${results.riskLevel === 'low' ? 'Low' : results.riskLevel === 'medium' ? 'Medium' : 'High'} risk)`;
+              
+              await navigator.share({
+                title: 'Skin Analysis Report',
+                text: shareText
+              });
+              
+              toast({
+                title: 'Shared successfully',
+                description: 'Report has been shared',
+              });
+            } else {
+              // Fallback to text-only sharing
+              shareTextOnly(results);
+            }
+          } catch (error) {
+            console.error('Error sharing on mobile web:', error);
+            shareTextOnly(results);
+          }
+        }
       } else {
-        // For web, use the Web Share API directly
-        shareTextOnly(results);
+        // Desktop web browser
+        // Just show a simpler dialog with download option
+        const choice = await new Promise<string>((resolve) => {
+          // Create a simple dialog element
+          const dialogDiv = document.createElement('div');
+          dialogDiv.style.position = 'fixed';
+          dialogDiv.style.top = '0';
+          dialogDiv.style.left = '0';
+          dialogDiv.style.width = '100%';
+          dialogDiv.style.height = '100%';
+          dialogDiv.style.backgroundColor = 'rgba(0,0,0,0.5)';
+          dialogDiv.style.zIndex = '9999';
+          dialogDiv.style.display = 'flex';
+          dialogDiv.style.alignItems = 'center';
+          dialogDiv.style.justifyContent = 'center';
+          
+          // Dialog content for desktop
+          dialogDiv.innerHTML = `
+            <div style="background: white; width: 80%; max-width: 300px; border-radius: 8px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+              <h3 style="margin: 0 0 16px; font-size: 18px; font-weight: 500;">Share Options</h3>
+              <button id="save-btn" style="display: block; width: 100%; background: #22c55e; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Download PDF</button>
+              <button id="copy-btn" style="display: block; width: 100%; background: #3b82f6; color: white; border: none; padding: 12px; margin-bottom: 8px; border-radius: 4px; font-size: 14px;">Copy to Clipboard</button>
+              <button id="cancel-btn" style="display: block; width: 100%; background: #f3f4f6; color: #374151; border: none; padding: 12px; border-radius: 4px; font-size: 14px;">Cancel</button>
+            </div>
+          `;
+          
+          document.body.appendChild(dialogDiv);
+          
+          // Add click handlers
+          document.getElementById('save-btn')?.addEventListener('click', () => {
+            document.body.removeChild(dialogDiv);
+            resolve('save');
+          });
+          
+          document.getElementById('copy-btn')?.addEventListener('click', () => {
+            document.body.removeChild(dialogDiv);
+            resolve('copy');
+          });
+          
+          document.getElementById('cancel-btn')?.addEventListener('click', () => {
+            document.body.removeChild(dialogDiv);
+            resolve('cancel');
+          });
+        });
+        
+        if (choice === 'cancel') {
+          // User canceled
+          return;
+        } else if (choice === 'save') {
+          // Save PDF
+          await saveWebPdf(results, compatibleImage);
+        } else if (choice === 'copy') {
+          // Copy text to clipboard
+          const shareText = `Skin Analysis Report: ${results.prediction} (${Math.round(results.confidence * 100)}% confidence, ${results.riskLevel === 'low' ? 'Low' : results.riskLevel === 'medium' ? 'Medium' : 'High'} risk)`;
+          
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(shareText);
+            toast({
+              title: 'Copied to clipboard',
+              description: 'Report text has been copied to clipboard',
+            });
+          } else {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = shareText;
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+              document.execCommand('copy');
+              toast({
+                title: 'Copied to clipboard',
+                description: 'Report text has been copied to clipboard',
+              });
+            } catch (err) {
+              console.error('Fallback: Unable to copy to clipboard', err);
+              toast({
+                title: 'Copy failed',
+                description: 'Please select and copy the text manually',
+                variant: 'destructive',
+              });
+            }
+            document.body.removeChild(textArea);
+          }
+        }
       }
     } catch (error) {
       console.error('Error with share options:', error);
