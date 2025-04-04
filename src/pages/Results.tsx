@@ -29,6 +29,11 @@ interface AnalysisResult {
   usingFallback: boolean;
 }
 
+// Helper to determine if we're running in a Capacitor app
+const isCapacitorApp = () => {
+  return Boolean(window.Capacitor?.isNativePlatform());
+};
+
 // Helper function to detect mobile browsers
 const isMobileBrowser = () => {
   const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
@@ -471,26 +476,32 @@ const Results: React.FC = () => {
     setUsingFallback(false);
     
     try {
+      console.log("Running on Capacitor native app:", isCapacitorApp());
+      
       // Try to initialize with ONNX model first
       try {
+        console.log("Attempting to initialize with ONNX model:", MODEL_URL);
         await modelService.initialize(MODEL_URL);
-        console.log("Tried to initialize with ONNX model");
+        console.log("Successfully initialized with ONNX model");
       } catch (onnxError) {
-        console.warn("Failed to initialize with ONNX model:", onnxError);
+        console.error("Failed to initialize with ONNX model:", onnxError);
         
         // If ONNX fails, try TensorFlow.js model
         try {
+          console.log("Attempting to initialize with TensorFlow.js model:", TF_MODEL_URL);
           await modelService.initialize(TF_MODEL_URL);
-          console.log("Tried to initialize with TensorFlow.js model");
+          console.log("Successfully initialized with TensorFlow.js model");
         } catch (tfError) {
-          console.warn("Failed to initialize with TensorFlow.js model:", tfError);
+          console.error("Failed to initialize with TensorFlow.js model:", tfError);
           // Both failed, but modelService should handle fallback
+          console.log("Both models failed to load, using fallback");
         }
       }
       
       // Analyze the image
       const result = await analyzeImage(imageData);
       if (result && result.usingFallback) {
+        console.log("Using fallback for analysis due to model loading issues");
         setUsingFallback(true);
       }
     } catch (error) {

@@ -26,11 +26,21 @@ if (window.wasmMemory) {
 
 // Detect if running on mobile
 const isMobileBrowser = () => {
+  // Only detect mobile web browsers, not Capacitor apps
+  if (window.Capacitor?.isNativePlatform()) {
+    // If it's a Capacitor app (Android/iOS), don't treat it as a mobile browser
+    return false; 
+  }
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 };
 
 // Check if we should use the light version
 const shouldUseLightVersion = () => {
+  // Only use light version for mobile browsers, not for Capacitor apps
+  if (window.Capacitor?.isNativePlatform()) {
+    // If it's a native app (Android/iOS), use the full model
+    return false;
+  }
   return window.useLightVersion === true || isMobileBrowser();
 };
 
@@ -41,6 +51,16 @@ if (isMobileBrowser()) {
   tf.ENV.set('WEBGL_FORCE_F16_TEXTURES', true); // Use F16 to reduce memory
   tf.ENV.set('WEBGL_PACK', false); // Disable texture packing for compatibility
 }
+
+// Helper function to get correct model path for different platforms
+const getModelPath = (url: string): string => {
+  if (window.Capacitor?.isNativePlatform()) {
+    // For Android/iOS, the base path is different
+    // We need to remove the leading slash for Android assets
+    return url.startsWith('/') ? url.substring(1) : url;
+  }
+  return url;
+};
 
 export interface PredictionResult {
   prediction: string;
@@ -86,9 +106,9 @@ export class ModelService {
   async initialize(modelUrl: string): Promise<void> {
     if (this.initialized || this.initializing) return;
     
-    // For mobile or if light version flag is set, use fallback
+    // For mobile browsers only (not Capacitor apps), use fallback
     if (shouldUseLightVersion()) {
-      console.log('Using light version for mobile, skipping model loading');
+      console.log('Using light version for mobile browser, skipping model loading');
       this.useFallback = true;
       this.initialized = true;
       return;
@@ -96,7 +116,10 @@ export class ModelService {
     
     try {
       this.initializing = true;
-      console.log('Loading model from:', modelUrl);
+      
+      // Get the correct model path for the current platform
+      const platformModelUrl = getModelPath(modelUrl);
+      console.log('Loading model from:', platformModelUrl);
       
       // Initialize tensorflow.js (for image preprocessing and possible fallback)
       await tf.ready();
@@ -106,15 +129,15 @@ export class ModelService {
       
       if (shouldTryTFJSFirst) {
         // For mobile, try TensorFlow.js first, then ONNX if that fails
-        await this.tryLoadTFJSModel(modelUrl);
+        await this.tryLoadTFJSModel(platformModelUrl);
         if (!this.tfModel) {
-          await this.tryLoadONNXModel(modelUrl);
+          await this.tryLoadONNXModel(platformModelUrl);
         }
       } else {
-        // For desktop, try ONNX first (better performance), then TensorFlow.js
-        await this.tryLoadONNXModel(modelUrl);
+        // For desktop and Capacitor apps, try ONNX first (better performance), then TensorFlow.js
+        await this.tryLoadONNXModel(platformModelUrl);
         if (!this.session) {
-          await this.tryLoadTFJSModel(modelUrl);
+          await this.tryLoadTFJSModel(platformModelUrl);
         }
       }
       
