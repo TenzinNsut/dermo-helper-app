@@ -44,17 +44,17 @@ DermoHelper is designed as a supplementary tool to assist healthcare professiona
   - Used Focal Loss with class weights `[1.0, 4.0]` to handle class imbalance (more weight to the malignant class).
   - Fine-tuned with a learning rate of 0.00001 to reduce overfitting.
 - **Performance (Threshold 0.5)**:
-  - Accuracy: 80.14%
-  - Sensitivity (Recall for Malignant): 94.39%
-  - Specificity (Recall for Benign): 76.67%
-  - Precision for Malignant: 0.50
-  - F1-Score for Malignant: 0.65
-  - ROC-AUC: 0.9519
+  - Accuracy: 87.82%
+  - Sensitivity (Recall for Malignant): 88.78%
+  - Specificity (Recall for Benign): 87.59%
+  - Precision for Malignant: 0.64
+  - F1-Score for Malignant: 0.74
+  - ROC-AUC: 0.9551
 
 ### Step 3: Initial Student Model
 - **Model**: MobileNetV3-Large, a lightweight model suitable for mobile deployment.
 - **Performance (Before Distillation)**:
-  - Accuracy: 62.38%
+  - Accuracy: 67.47%
   - Sensitivity: 55%
   - Specificity: 64%
   - Precision for Malignant: 0.27
@@ -112,12 +112,12 @@ The total loss for MAG-KD is a weighted combination of the three components:
   - Class weights: `[[1.0, 4.0], [1.0, 3.0]]`
 - **Method**: Grid search with validation on a separate set, optimizing for a weighted score (prioritizing sensitivity, then accuracy and specificity).
 - **Final Performance (Threshold 0.5)**:
-  - Accuracy: 86.13%
-  - Sensitivity: 88.27%
-  - Specificity: 85.61%
-  - Precision for Malignant: 0.60
-  - F1-Score for Malignant: 0.71
-  - ROC-AUC: 0.9539
+  - Accuracy: 88.02%
+  - Sensitivity: 84.69%
+  - Specificity: 88.83%
+  - Precision for Malignant: 0.65
+  - F1-Score for Malignant: 0.73
+  - ROC-AUC: 0.9509
 - **Observation**: Tuning the MAG-KD weights (e.g., increasing `beta` to focus more on distillation) improved specificity (from 69.85% to 85.61%) and precision (from 0.32 to 0.60), while slightly reducing sensitivity (from 94.39% to 88.27%).
 
 ### Step 6: Model Optimization and Deployment
