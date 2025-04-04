@@ -55,9 +55,16 @@ if (isMobileBrowser()) {
 // Helper function to get correct model path for different platforms
 const getModelPath = (url: string): string => {
   if (window.Capacitor?.isNativePlatform()) {
-    // For Android/iOS, the base path is different
-    // We need to remove the leading slash for Android assets
-    return url.startsWith('/') ? url.substring(1) : url;
+    // For Android/iOS, adjust the path for the assets folder structure
+    // In Android, remove leading slash and ensure the path is correct
+    if (url.startsWith('/')) {
+      return url.substring(1); // Remove leading slash
+    }
+    // If no leading slash, ensure it's pointing to the correct location
+    if (!url.includes('public/')) {
+      return `public${url.startsWith('/') ? '' : '/'}${url}`;
+    }
+    return url;
   }
   return url;
 };
@@ -120,11 +127,74 @@ export class ModelService {
       // Get the correct model path for the current platform
       const platformModelUrl = getModelPath(modelUrl);
       console.log('Loading model from:', platformModelUrl);
+      console.log('Original model URL was:', modelUrl);
+      console.log('Is Capacitor native app:', Boolean(window.Capacitor?.isNativePlatform()));
       
       // Initialize tensorflow.js (for image preprocessing and possible fallback)
       await tf.ready();
+
+      // Special handling for mobile native apps to try both path formats
+      if (window.Capacitor?.isNativePlatform()) {
+        console.log('Native app detected, trying multiple model paths');
+        
+        // Try four different path formats to cover all possible variations
+        const pathVariants = [
+          platformModelUrl,                        // The adjusted path
+          modelUrl.startsWith('/') ? modelUrl.substring(1) : modelUrl, // Without leading slash
+          `models/${modelUrl.split('/').pop()}`,   // Just models/filename.onnx
+          `public/models/${modelUrl.split('/').pop()}` // public/models/filename.onnx
+        ];
+        
+        let modelLoaded = false;
+        
+        // Try each path variant until one works
+        for (const path of pathVariants) {
+          if (modelLoaded) break;
+          
+          console.log('Trying path:', path);
+          try {
+            await this.tryLoadONNXModel(path);
+            if (this.session) {
+              console.log('Successfully loaded model with path:', path);
+              modelLoaded = true;
+            }
+          } catch (err) {
+            console.warn(`Failed to load model with path: ${path}`, err);
+          }
+        }
+        
+        // If ONNX failed, try TensorFlow.js paths
+        if (!modelLoaded) {
+          for (const path of pathVariants) {
+            if (modelLoaded) break;
+            
+            try {
+              await this.tryLoadTFJSModel(path);
+              if (this.tfModel) {
+                console.log('Successfully loaded TF.js model with path:', path);
+                modelLoaded = true;
+              }
+            } catch (err) {
+              console.warn(`Failed to load TF.js model with path: ${path}`, err);
+            }
+          }
+        }
+        
+        // Set state based on whether a model was loaded
+        if (modelLoaded) {
+          this.initialized = true;
+          this.initializing = false;
+        } else {
+          console.error('Failed to load model with any path variant');
+          this.useFallback = true;
+          this.initialized = true;
+          this.initializing = false;
+        }
+        
+        return;
+      }
       
-      // Mobile devices should try TensorFlow.js first as it's often more compatible
+      // Standard flow for web browsers
       const shouldTryTFJSFirst = isMobileBrowser();
       
       if (shouldTryTFJSFirst) {

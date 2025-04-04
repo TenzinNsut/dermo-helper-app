@@ -36,6 +36,8 @@ const isCapacitorApp = () => {
 
 // Helper function to detect mobile browsers
 const isMobileBrowser = () => {
+  // If running in a Capacitor app, it's not a mobile browser
+  if (isCapacitorApp()) return false;
   const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 };
@@ -477,19 +479,40 @@ const Results: React.FC = () => {
     
     try {
       console.log("Running on Capacitor native app:", isCapacitorApp());
+      console.log("Device info:", 
+        isCapacitorApp() ? 
+          "Native Android/iOS app" : 
+          (isMobileBrowser() ? "Mobile browser" : "Desktop browser")
+      );
+      
+      // Enforce no fallback for native apps
+      if (isCapacitorApp() && window.useLightVersion === true) {
+        console.log("Explicitly disabling light version for native app");
+        window.useLightVersion = false;
+      }
       
       // Try to initialize with ONNX model first
       try {
-        console.log("Attempting to initialize with ONNX model:", MODEL_URL);
-        await modelService.initialize(MODEL_URL);
+        // For Android, we need a different model path approach
+        const adjustedModelUrl = isCapacitorApp() ? 
+          (MODEL_URL.startsWith('/') ? MODEL_URL.substring(1) : MODEL_URL) : 
+          MODEL_URL;
+          
+        console.log("Attempting to initialize with ONNX model:", adjustedModelUrl);
+        await modelService.initialize(adjustedModelUrl);
         console.log("Successfully initialized with ONNX model");
       } catch (onnxError) {
         console.error("Failed to initialize with ONNX model:", onnxError);
         
         // If ONNX fails, try TensorFlow.js model
         try {
-          console.log("Attempting to initialize with TensorFlow.js model:", TF_MODEL_URL);
-          await modelService.initialize(TF_MODEL_URL);
+          // For Android, adjust TF.js model path too
+          const adjustedTfModelUrl = isCapacitorApp() ? 
+            (TF_MODEL_URL.startsWith('/') ? TF_MODEL_URL.substring(1) : TF_MODEL_URL) : 
+            TF_MODEL_URL;
+            
+          console.log("Attempting to initialize with TensorFlow.js model:", adjustedTfModelUrl);
+          await modelService.initialize(adjustedTfModelUrl);
           console.log("Successfully initialized with TensorFlow.js model");
         } catch (tfError) {
           console.error("Failed to initialize with TensorFlow.js model:", tfError);
@@ -497,6 +520,10 @@ const Results: React.FC = () => {
           console.log("Both models failed to load, using fallback");
         }
       }
+      
+      // Access useFallback to check if we're using fallback before analysis
+      const modelServiceWithFallback = modelService as unknown as { useFallback: boolean };
+      console.log("Current fallback status before analysis:", modelServiceWithFallback.useFallback);
       
       // Analyze the image
       const result = await analyzeImage(imageData);
