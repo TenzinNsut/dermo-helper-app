@@ -10,7 +10,7 @@ The web version of DermoHelper is available at:
 
 ### Mobile App
 The Android app can be downloaded from:
-[Aptoide Store](https://dermo-helper.en.aptoide.com/)
+[Firebase App Distribution](https://appdistribution.firebase.dev/i/0d6ee66d443530a7)
 
 ## Usage
 1. Launch the app
