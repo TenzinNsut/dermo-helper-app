@@ -62,7 +62,7 @@ const getModelPath = (url: string): string => {
     }
     // If no leading slash, ensure it's pointing to the correct location
     if (!url.includes('public/')) {
-      return `public${url.startsWith('/') ? '' : '/'}${url}`;
+      return `public/${url}`;
     }
     return url;
   }
@@ -437,9 +437,6 @@ export class ModelService {
       // Draw image to 1x1 canvas to get average color
       ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, 1, 1);
       const pixelData = ctx.getImageData(0, 0, 1, 1).data;
-      
-      // Get the average color as RGB string
-      const colorKey = `${pixelData[0]},${pixelData[1]},${pixelData[2]}`;
       
       // Use a more complex algorithm for the fallback to simulate realistic results
       const brightness = (pixelData[0] + pixelData[1] + pixelData[2]) / 3 / 255;

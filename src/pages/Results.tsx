@@ -14,7 +14,6 @@ import { saveAs } from 'file-saver';
 // Import Capacitor plugins for file operations
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { isPlatform } from '@ionic/core';
 
 // Initialize pdfMake with fonts (with type assertion)
 (pdfMake as any).vfs = pdfFonts.pdfMake ? pdfFonts.pdfMake.vfs : pdfFonts.vfs;
@@ -703,10 +702,7 @@ const Results: React.FC = () => {
                 // Generate and save a PDF report
                 if (results && imageData) {
                   try {
-                    // Check if this is a Capacitor app on a mobile device
-                    const isCapacitorApp = isPlatform('android') || isPlatform('ios');
-                    
-                    if (isCapacitorApp) {
+                    if (isCapacitorApp()) {
                       // For Capacitor app, save using Capacitor Filesystem
                       const savedFile = await saveMobilePdf(results, imageData, false);
                       

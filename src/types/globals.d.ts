@@ -2,6 +2,9 @@ interface Window {
   wasmMemory?: WebAssembly.Memory;
   useLightVersion?: boolean;
   appLoaded?: boolean;
+  Capacitor?: {
+    isNativePlatform: () => boolean;
+  };
 }
 
 declare module 'onnxruntime-web' {

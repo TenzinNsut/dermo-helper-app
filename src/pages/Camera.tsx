@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Image, RefreshCw, CheckCircle, X } from 'lucide-react';
+import { Camera, Image, CheckCircle, X } from 'lucide-react';
 import Layout from '@/components/Layout';
 import ActionButton from '@/components/ActionButton';
 import { useCapacitorCamera } from '@/hooks/useCapacitorCamera';
