@@ -2,7 +2,6 @@
 
 Dermo-Helper is a cross-platform skin cancer preliminary screening application for skin lesion detection, aimed at classifying skin lesions as benign or malignant using deep learning. It performs real-time, client-side machine learning inference directly on the user's device using ONNX Runtime Web (onnxruntime-web) via WebAssembly (WASM). The application is designed to assist users in early detection of skin cancer by leveraging a lightweight, efficient model suitable for mobile deployment. The project involves training a teacher model, distilling its knowledge to a student model using Multi-Attention Guided Knowledge Distillation (MAG-KD), and deploying quantized ONNX model on web(using a React/Capacitor tech stack with WebAssembly inference) and mobile device using a web-based tech stack with Capacitor for cross-platform support.
 
-<img width="590" height="457" alt="image" src="https://github.com/user-attachments/assets/98b3fbe5-10b7-43d2-bb92-21efc71a3310" />
 
 https://github.com/user-attachments/assets/a98eb130-4e2d-4199-8235-b6e3cace18e6
 
