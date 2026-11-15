@@ -158,7 +158,7 @@ All models were evaluated using the mathematically calibrated optimal decision t
 <img width="1751" height="457" alt="image" src="https://github.com/user-attachments/assets/d08e47b7-f668-4d11-be73-24d8f14cb4fe" />
 <img width="1718" height="495" alt="image" src="https://github.com/user-attachments/assets/054cb2a4-f350-4fe2-a7c0-153026799621" />
 
-## 4. Project Directory Structure
+## Project Directory Structure
 
 ```
 dermo-helper-app/
