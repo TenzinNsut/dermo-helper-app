@@ -1,531 +1,250 @@
-import * as tf from '@tensorflow/tfjs';
 import * as ort from 'onnxruntime-web';
 
-// Configure ONNX Runtime Web to use a specific path for WASM files
-// This allows us to control where it looks for WebAssembly files
-ort.env.wasm.wasmPaths = {
-  'ort-wasm-simd-threaded.wasm': '/wasm/ort-wasm-simd-threaded.wasm',
-  'ort-wasm-simd.wasm': '/wasm/ort-wasm-simd.wasm',
-  'ort-wasm-threaded.wasm': '/wasm/ort-wasm-threaded.wasm',
-  'ort-wasm.wasm': '/wasm/ort-wasm.wasm',
-};
-
-// Add more configuration for better mobile compatibility
-ort.env.wasm.numThreads = 1; // Use single-threaded execution for better mobile compatibility
-ort.env.wasm.simd = false; // Disable SIMD for broader device compatibility
-ort.env.wasm.proxy = false; // Disable web worker proxy to reduce overhead
-
-// Try to use custom memory if available
-if (window.wasmMemory) {
-  try {
-    ort.env.wasm.wasmMemory = window.wasmMemory;
-  } catch (e) {
-    console.warn('Failed to use custom WASM memory:', e);
-  }
-}
-
-// Detect if running on mobile
-const isMobileBrowser = () => {
-  // Only detect mobile web browsers, not Capacitor apps
-  if (window.Capacitor?.isNativePlatform()) {
-    // If it's a Capacitor app (Android/iOS), don't treat it as a mobile browser
-    return false; 
-  }
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-};
-
-// Check if we should use the light version
-const shouldUseLightVersion = () => {
-  // Only use light version for mobile browsers, not for Capacitor apps
-  if (window.Capacitor?.isNativePlatform()) {
-    // If it's a native app (Android/iOS), use the full model
-    return false;
-  }
-  return window.useLightVersion === true || isMobileBrowser();
-};
-
-// Mobile specific settings
-if (isMobileBrowser()) {
-  console.log('Running on mobile device, adjusting performance settings...');
-  tf.ENV.set('WEBGL_CPU_FORWARD', true); // Allow CPU fallback for WebGL ops
-  tf.ENV.set('WEBGL_FORCE_F16_TEXTURES', true); // Use F16 to reduce memory
-  tf.ENV.set('WEBGL_PACK', false); // Disable texture packing for compatibility
-}
-
-// Helper function to get correct model path for different platforms
-const getModelPath = (url: string): string => {
-  if (window.Capacitor?.isNativePlatform()) {
-    // For Android/iOS, adjust the path for the assets folder structure
-    // In Android, remove leading slash and ensure the path is correct
-    if (url.startsWith('/')) {
-      return url.substring(1); // Remove leading slash
-    }
-    // If no leading slash, ensure it's pointing to the correct location
-    if (!url.includes('public/')) {
-      return `public/${url}`;
-    }
-    return url;
-  }
-  return url;
-};
+// Configure ONNX Runtime Web for browser and mobile WebAssembly execution
+ort.env.wasm.numThreads = 1; // Single-threaded for maximum cross-device compatibility
+ort.env.wasm.simd = true;
 
 export interface PredictionResult {
-  prediction: string;
-  confidence: number;
+  prediction: string;          // 'Benign' | 'Malignant'
+  confidence: number;          // malignant probability (0 - 1)
+  benignProb: number;          // benign probability (0 - 1)
+  malignantProb: number;       // malignant probability (0 - 1)
   riskLevel: 'low' | 'medium' | 'high';
+  riskTier: string;            // 'Low Risk (Benign)' | 'Medium Risk (Potentially Malignant)' | 'High Risk (Likely Malignant)'
+  inferenceTimeMs: number;     // Execution duration in ms
+}
+
+/**
+ * Image Preprocessing using HTML5 <canvas>:
+ * 1. Resize & Crop: Center-crops image to a 1:1 aspect ratio, then resizes to 224x224 pixels.
+ * 2. Extract Pixel Data: Uses ctx.getImageData(0, 0, 224, 224) to get the RGBA array.
+ * 3. Normalize: Loops through pixels, extracts R, G, B channels (ignores Alpha), and normalizes
+ *    using ImageNet statistics:
+ *      Mean: R: 0.485, G: 0.456, B: 0.406
+ *      Std:  R: 0.229, G: 0.224, B: 0.225
+ *      Formula per channel: (value / 255.0 - mean) / std
+ * 4. Transpose to CHW: Flattens normalized data into a single Float32Array of size 150,528
+ *    (3 * 224 * 224), sequentially storing all Red values, then all Green values, then all Blue values.
+ */
+export function preprocessImageCanvas(imgElement: HTMLImageElement): Float32Array {
+  const canvas = document.createElement('canvas');
+  canvas.width = 224;
+  canvas.height = 224;
+
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    throw new Error('Failed to obtain 2D rendering context from HTML5 canvas.');
+  }
+
+  // 1. Center-crop to 1:1 aspect ratio, then resize to 224x224
+  const srcWidth = imgElement.naturalWidth || imgElement.width;
+  const srcHeight = imgElement.naturalHeight || imgElement.height;
+  const side = Math.min(srcWidth, srcHeight);
+  const sx = (srcWidth - side) / 2;
+  const sy = (srcHeight - side) / 2;
+
+  ctx.drawImage(imgElement, sx, sy, side, side, 0, 0, 224, 224);
+
+  // 2. Extract Pixel Data: RGBA array (224 * 224 * 4)
+  const imageData = ctx.getImageData(0, 0, 224, 224);
+  const rgba = imageData.data;
+
+  // 3 & 4. Normalize & Transpose to CHW (size 150,528 = 3 * 224 * 224)
+  const numPixels = 224 * 224; // 50,176 pixels
+  const preprocessedData = new Float32Array(3 * numPixels); // 150,528 elements
+
+  // ImageNet normalization constants
+  const meanR = 0.485, meanG = 0.456, meanB = 0.406;
+  const stdR = 0.229,  stdG = 0.224,  stdB = 0.225;
+
+  for (let i = 0; i < numPixels; i++) {
+    const r = rgba[i * 4];
+    const g = rgba[i * 4 + 1];
+    const b = rgba[i * 4 + 2];
+    // rgba[i * 4 + 3] (Alpha) is ignored
+
+    // Formula per channel: (value / 255.0 - mean) / std
+    preprocessedData[i] = (r / 255.0 - meanR) / stdR;                       // All Red values: [0 .. 50,175]
+    preprocessedData[numPixels + i] = (g / 255.0 - meanG) / stdG;           // All Green values: [50,176 .. 100,351]
+    preprocessedData[2 * numPixels + i] = (b / 255.0 - meanB) / stdB;       // All Blue values: [100,352 .. 150,527]
+  }
+
+  return preprocessedData;
 }
 
 export class ModelService {
   private session: ort.InferenceSession | null = null;
-  private tfModel: tf.GraphModel | null = null;
+  private initializing: Promise<void> | null = null;
   private labels: string[] = ['Benign', 'Malignant'];
-  private initialized: boolean = false;
-  private initializing: boolean = false;
-  private useFallback: boolean = false;
-  private useTfjs: boolean = false;
-  // Store some example images and their predicted classes for the fallback
-  private exampleImages: {[key: string]: number} = {
-    // Light colors - likely benign
-    "255,255,255": 0,
-    "240,240,240": 0,
-    "230,220,210": 0,
-    "245,230,210": 0,
-    // Dark colors - more likely malignant
-    "100,80,80": 1,
-    "50,40,40": 1,
-    "80,60,60": 1,
-    "120,80,70": 1,
-    // Medium colors - medium risk
-    "180,150,140": 0.5,
-    "170,160,150": 0.4,
-    "160,140,120": 0.4,
-    "150,130,120": 0.6
-  };
+  private readyListeners: Set<(ready: boolean) => void> = new Set();
 
-  constructor() {
-    // If on mobile, immediately set to use fallback for faster loading
-    if (shouldUseLightVersion()) {
-      this.useFallback = true;
-      this.initialized = true;
-    }
+  /**
+   * Check if the quantized ONNX model is loaded in WASM memory and ready to run offline
+   */
+  isReady(): boolean {
+    return this.session !== null;
   }
 
-  async initialize(modelUrl: string): Promise<void> {
-    if (this.initialized || this.initializing) return;
-    
-    // For mobile browsers only (not Capacitor apps), use fallback
-    if (shouldUseLightVersion()) {
-      console.log('Using light version for mobile browser, skipping model loading');
-      this.useFallback = true;
-      this.initialized = true;
-      return;
-    }
-    
+  /**
+   * Subscribe to model readiness state changes
+   * Immediately notifies the listener with the current state upon subscription
+   */
+  onReadyChange(listener: (ready: boolean) => void): () => void {
+    this.readyListeners.add(listener);
     try {
-      this.initializing = true;
-      
-      // Get the correct model path for the current platform
-      const platformModelUrl = getModelPath(modelUrl);
-      console.log('Loading model from:', platformModelUrl);
-      console.log('Original model URL was:', modelUrl);
-      console.log('Is Capacitor native app:', Boolean(window.Capacitor?.isNativePlatform()));
-      
-      // Initialize tensorflow.js (for image preprocessing and possible fallback)
-      await tf.ready();
+      listener(this.isReady());
+    } catch (err) {
+      console.error('[ModelService] Listener error on initial callback:', err);
+    }
+    return () => {
+      this.readyListeners.delete(listener);
+    };
+  }
 
-      // Special handling for mobile native apps to try both path formats
-      if (window.Capacitor?.isNativePlatform()) {
-        console.log('Native app detected, trying multiple model paths');
-        
-        // Try four different path formats to cover all possible variations
-        const pathVariants = [
-          platformModelUrl,                        // The adjusted path
-          modelUrl.startsWith('/') ? modelUrl.substring(1) : modelUrl, // Without leading slash
-          `models/${modelUrl.split('/').pop()}`,   // Just models/filename.onnx
-          `public/models/${modelUrl.split('/').pop()}` // public/models/filename.onnx
-        ];
-        
-        let modelLoaded = false;
-        
-        // Try each path variant until one works
-        for (const path of pathVariants) {
-          if (modelLoaded) break;
-          
-          console.log('Trying path:', path);
-          try {
-            await this.tryLoadONNXModel(path);
-            if (this.session) {
-              console.log('Successfully loaded model with path:', path);
-              modelLoaded = true;
-            }
-          } catch (err) {
-            console.warn(`Failed to load model with path: ${path}`, err);
-          }
-        }
-        
-        // If ONNX failed, try TensorFlow.js paths
-        if (!modelLoaded) {
-          for (const path of pathVariants) {
-            if (modelLoaded) break;
-            
-            try {
-              await this.tryLoadTFJSModel(path);
-              if (this.tfModel) {
-                console.log('Successfully loaded TF.js model with path:', path);
-                modelLoaded = true;
-              }
-            } catch (err) {
-              console.warn(`Failed to load TF.js model with path: ${path}`, err);
-            }
-          }
-        }
-        
-        // Set state based on whether a model was loaded
-        if (modelLoaded) {
-          this.initialized = true;
-          this.initializing = false;
-        } else {
-          console.error('Failed to load model with any path variant');
-          this.useFallback = true;
-          this.initialized = true;
-          this.initializing = false;
-        }
-        
-        return;
+  private notifyReady(ready: boolean): void {
+    this.readyListeners.forEach((listener) => {
+      try {
+        listener(ready);
+      } catch (err) {
+        console.error('[ModelService] Listener notification error:', err);
       }
-      
-      // Standard flow for web browsers
-      const shouldTryTFJSFirst = isMobileBrowser();
-      
-      if (shouldTryTFJSFirst) {
-        // For mobile, try TensorFlow.js first, then ONNX if that fails
-        await this.tryLoadTFJSModel(platformModelUrl);
-        if (!this.tfModel) {
-          await this.tryLoadONNXModel(platformModelUrl);
-        }
-      } else {
-        // For desktop and Capacitor apps, try ONNX first (better performance), then TensorFlow.js
-        await this.tryLoadONNXModel(platformModelUrl);
-        if (!this.session) {
-          await this.tryLoadTFJSModel(platformModelUrl);
-        }
-      }
-      
-      this.initialized = true;
-      this.initializing = false;
-      
-      // If both model loading methods failed, use the fallback
-      if (!this.tfModel && !this.session) {
-        console.log('Could not load any model, using fallback');
-        this.useFallback = true;
-      }
-    } catch (error) {
-      console.error('Failed to load model:', error);
-      this.initializing = false;
-      this.useFallback = true;
-      this.initialized = true; // Set to true so we can proceed with fallback
-    }
-  }
-  
-  private async tryLoadTFJSModel(modelUrl: string): Promise<void> {
-    try {
-      const baseModelUrl = modelUrl.replace('.onnx', '');
-      const tfModelUrl = `${baseModelUrl}.json`;
-      
-      console.log('Attempting to load as TensorFlow.js model from:', tfModelUrl);
-      this.tfModel = await tf.loadGraphModel(tfModelUrl);
-      console.log('TensorFlow.js model loaded successfully');
-      this.useTfjs = true;
-    } catch (error) {
-      console.warn('Failed to load TensorFlow.js model:', error);
-      this.tfModel = null;
-    }
-  }
-  
-  private async tryLoadONNXModel(modelUrl: string): Promise<void> {
-    try {
-      console.log('Attempting to create ONNX inference session...');
-      
-      // Create session options optimized for the current device
-      const sessionOptions: ort.InferenceSession.SessionOptions = { 
-        logSeverityLevel: 0,
-        graphOptimizationLevel: 'all',
-        executionMode: isMobileBrowser() ? 'sequential' : 'parallel',
-        enableCpuMemArena: true
-      };
-      
-      this.session = await ort.InferenceSession.create(modelUrl, sessionOptions);
-      console.log('ONNX model loaded successfully');
-      console.log('Model inputs:', this.session.inputNames);
-      console.log('Model outputs:', this.session.outputNames);
-    } catch (error) {
-      console.warn('Failed to load ONNX model:', error);
-      this.session = null;
-    }
+    });
   }
 
-  async predict(imageData: string): Promise<PredictionResult> {
-    if (!this.initialized) {
-      throw new Error('Model not initialized. Call initialize() first.');
-    }
+  // Initialize and load the quantized ONNX model
+  async initialize(customUrl?: string): Promise<void> {
+    if (this.session) return;
+    if (this.initializing) return this.initializing;
 
-    // If we're using the mobile/light version, use our simplified approach
-    if (this.useFallback || shouldUseLightVersion()) {
-      return this.predictWithFallback(imageData);
-    }
+    this.initializing = (async () => {
+      const candidatePaths = [
+        customUrl,
+        '/models/student_model_quantized.onnx',
+        'models/student_model_quantized.onnx',
+        'public/models/student_model_quantized.onnx',
+      ].filter(Boolean) as string[];
 
-    try {
-      // Create an HTMLImageElement from the dataURL
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = imageData;
-      });
+      let loadedSession: ort.InferenceSession | null = null;
+      let lastError: unknown = null;
 
-      // Preprocess the image using TensorFlow.js
-      let tensor = tf.tidy(() => {
-        // Use tf.tidy to automatically clean up all tensors
-        const pixels = tf.browser.fromPixels(img);
-        
-        // Resize to 224x224
-        const resized = tf.image.resizeBilinear(pixels, [224, 224]);
-        
-        // Convert to float and normalize to [0, 1]
-        const normalized = resized.toFloat().div(255.0);
-        
-        // Normalize with ImageNet mean and std
-        const mean = tf.tensor([0.485, 0.456, 0.406]);
-        const std = tf.tensor([0.229, 0.224, 0.225]);
-        return normalized.sub(mean).div(std);
-      });
-      
-      let malignantProb: number;
-      
-      if (this.useFallback || (!this.session && !this.tfModel)) {
-        console.log('Using fallback prediction logic');
-        // Simulate a prediction using a simplified model
-        // Just for demonstration - in a real app you'd have a proper fallback
-        const averagePixelValue = tensor.mean().dataSync()[0];
-        
-        // Simple logic: darker images (lower pixel values) are more likely to be malignant in this demo
-        // Note: This is NOT medically accurate, just a simple fallback for demo purposes
-        malignantProb = Math.max(0, Math.min(1, 1 - averagePixelValue));
-      } else if (this.useTfjs && this.tfModel) {
-        console.log('Using TensorFlow.js model for prediction');
-        // Ensure tensor is in the right format for TensorFlow.js
-        // No need to transpose for TF.js models, they expect [1, 224, 224, 3]
-        const inputTensor = tensor.expandDims(0);
-        
-        // Run inference with TensorFlow.js
-        const tfResult = this.tfModel.predict(inputTensor) as tf.Tensor;
-        const outputData = await tfResult.data();
-        console.log('TF.js raw output:', outputData);
-        
-        // Apply softmax to get probabilities
-        const exp0 = Math.exp(outputData[0]);
-        const exp1 = Math.exp(outputData[1]);
-        const sum = exp0 + exp1;
-        const probabilities = [exp0 / sum, exp1 / sum];
-        
-        malignantProb = probabilities[1]; // Probability for malignant class
-        
-        // Clean up the TF result tensor
-        tfResult.dispose();
-      } else {
-        // Use ONNX Runtime
-        console.log('Using ONNX Runtime for prediction');
-        // Transpose to [1, 3, 224, 224] (batch, channels, height, width) for ONNX model
-        const transposedTensor = tensor.transpose([2, 0, 1]).expandDims(0);
-        
+      for (const path of candidatePaths) {
         try {
-          // Get the typed array from tensor
-          const inputData = await transposedTensor.data();
-          
-          // Create ONNX tensor from the data
-          const inputTensor = new ort.Tensor('float32', new Float32Array(inputData), [1, 3, 224, 224]);
-          
-          // Get the actual input name from the model (if available)
-          const inputName = this.session.inputNames[0] || 'input';
-          console.log('Using input name:', inputName);
-          
-          // Run inference with the correct input name
-          const feeds = { [inputName]: inputTensor };
-          const results = await this.session.run(feeds);
-          
-          // Get the actual output name from the model (if available)
-          const outputName = this.session.outputNames[0] || 'output';
-          console.log('Using output name:', outputName);
-          
-          // Get output using the correct output name
-          const outputData = results[outputName].data as Float32Array;
-          console.log('Raw output data:', Array.from(outputData).slice(0, 10));
-          
-          // Apply softmax to get probabilities
-          const exp0 = Math.exp(outputData[0]);
-          const exp1 = Math.exp(outputData[1]);
-          const sum = exp0 + exp1;
-          const probabilities = [exp0 / sum, exp1 / sum];
-          
-          malignantProb = probabilities[1]; // Probability for malignant class
-          
-          // Clean up transposed tensor
-          transposedTensor.dispose();
-        } catch (onnxError) {
-          console.error("ONNX runtime error:", onnxError);
-          // If ONNX fails, fall back to simplified method
-          console.log("Falling back to simplified prediction due to ONNX error");
-          const averagePixelValue = tensor.mean().dataSync()[0];
-          malignantProb = Math.max(0, Math.min(1, 1 - averagePixelValue));
+          console.log(`[ModelService] Attempting to load ONNX model from: ${path}`);
+          const session = await ort.InferenceSession.create(path, {
+            executionProviders: ['wasm'],
+          });
+          if (session) {
+            loadedSession = session;
+            console.log(`[ModelService] Successfully loaded student_model_quantized.onnx from: ${path}`);
+            console.log(`[ModelService] Model inputs:`, session.inputNames);
+            console.log(`[ModelService] Model outputs:`, session.outputNames);
+            break;
+          }
+        } catch (err) {
+          console.warn(`[ModelService] Could not load from ${path}:`, err);
+          lastError = err;
         }
       }
-      
-      const predictedClassIndex = malignantProb > 0.5 ? 1 : 0;
-      
-      // Clean up tensors
-      tensor.dispose();
-      
-      // Map to prediction result
-      const prediction = this.labels[predictedClassIndex] || 'Unknown';
-      
-      // Determine risk level based on confidence and prediction
-      let riskLevel: 'low' | 'medium' | 'high';
-      if (prediction === 'Benign') {
-        riskLevel = 'low';
-      } else {
-        // For malignant predictions, set risk level based on confidence
-        if (malignantProb < 0.7) {
-          riskLevel = 'medium';
-        } else {
-          riskLevel = 'high';
-        }
+
+      if (!loadedSession) {
+        this.session = null;
+        this.initializing = null;
+        this.notifyReady(false);
+        throw lastError || new Error('Failed to load student_model_quantized.onnx');
       }
-      
-      return {
-        prediction,
-        confidence: malignantProb,
-        riskLevel
-      };
-    } catch (error) {
-      console.error('Prediction error:', error);
-      return this.predictWithFallback(imageData);
-    }
+
+      this.session = loadedSession;
+      this.notifyReady(true);
+    })().catch((err) => {
+      this.session = null;
+      this.initializing = null;
+      this.notifyReady(false);
+      throw err;
+    });
+
+    return this.initializing;
   }
-  
-  // Special lightweight prediction for mobile browsers
-  private async predictWithFallback(imageData: string): Promise<PredictionResult> {
-    console.log('Using simplified mobile-friendly prediction');
-    
-    try {
-      // Create a small canvas to analyze the image
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = imageData;
-      });
-      
-      const canvas = document.createElement('canvas');
-      canvas.width = 1;
-      canvas.height = 1;
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) {
-        throw new Error('Could not get canvas context');
-      }
-      
-      // Draw image to 1x1 canvas to get average color
-      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, 1, 1);
-      const pixelData = ctx.getImageData(0, 0, 1, 1).data;
-      
-      // Use a more complex algorithm for the fallback to simulate realistic results
-      const brightness = (pixelData[0] + pixelData[1] + pixelData[2]) / 3 / 255;
-      const contrast = Math.abs(pixelData[0] - pixelData[1]) + Math.abs(pixelData[1] - pixelData[2]) + Math.abs(pixelData[0] - pixelData[2]);
-      
-      // Factors that might indicate malignant features:
-      // - Darker colors (lower brightness)
-      // - Higher contrast/variation in colors
-      // - More red components relative to others
-      const redFactor = pixelData[0] / (pixelData[1] + pixelData[2] + 1);
-      
-      // Combine factors into a probability (purely illustrative)
-      let malignantProb = 0.5;
-      
-      // Lower brightness increases malignant probability
-      malignantProb += (1 - brightness) * 0.3;
-      
-      // Higher contrast increases malignant probability
-      malignantProb += (contrast / 255) * 0.1;
-      
-      // Higher red component increases malignant probability
-      malignantProb += (redFactor > 1 ? 0.1 : 0);
-      
-      // Look for closest example in our database
-      let bestMatch = null;
-      let bestDistance = Infinity;
-      
-      for (const exampleColor in this.exampleImages) {
-        const rgbValues = exampleColor.split(',').map(Number);
-        const distance = Math.sqrt(
-          Math.pow(pixelData[0] - rgbValues[0], 2) +
-          Math.pow(pixelData[1] - rgbValues[1], 2) +
-          Math.pow(pixelData[2] - rgbValues[2], 2)
-        );
-        
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestMatch = exampleColor;
-        }
-      }
-      
-      // If we found a close match, weight the probability toward the example
-      if (bestMatch && bestDistance < 100) {
-        const exampleProb = this.exampleImages[bestMatch];
-        malignantProb = malignantProb * 0.5 + exampleProb * 0.5;
-      }
-      
-      // Ensure probability is in valid range
-      malignantProb = Math.max(0, Math.min(1, malignantProb));
-      
-      // Add some random variation to make it feel more realistic
-      const variation = Math.random() * 0.1 - 0.05; // Random value between -0.05 and 0.05
-      malignantProb = Math.max(0, Math.min(1, malignantProb + variation));
-      
-      // Round to 2 decimal places to simulate model precision
-      malignantProb = Math.round(malignantProb * 100) / 100;
-      
-      const predictedClassIndex = malignantProb > 0.5 ? 1 : 0;
-      const prediction = this.labels[predictedClassIndex];
-      
-      // Determine risk level
-      let riskLevel: 'low' | 'medium' | 'high';
-      if (malignantProb < 0.4) {
-        riskLevel = 'low';
-      } else if (malignantProb < 0.7) {
-        riskLevel = 'medium';
-      } else {
-        riskLevel = 'high';
-      }
-      
-      return {
-        prediction,
-        confidence: malignantProb,
-        riskLevel
-      };
-    } catch (error) {
-      console.error('Error in fallback prediction:', error);
-      
-      // If all else fails, return a truly fallback result
-      const randomValue = Math.random();
-      const prediction = randomValue > 0.7 ? this.labels[1] : this.labels[0];
-      const confidence = randomValue > 0.7 ? 0.6 + (Math.random() * 0.3) : 0.6 + (Math.random() * 0.3);
-      
-      return {
-        prediction,
-        confidence,
-        riskLevel: prediction === 'Benign' ? 'low' : (confidence > 0.7 ? 'high' : 'medium')
-      };
+
+  // Run actual ONNX model inference (Zero Guesswork)
+  async predict(imageData: string): Promise<PredictionResult> {
+    const startTime = performance.now();
+
+    if (!this.session) {
+      await this.initialize();
     }
+
+    if (!this.session) {
+      throw new Error('ONNX inference session not available.');
+    }
+
+    // Load image element
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = () => resolve(true);
+      img.onerror = () => reject(new Error('Failed to load image for ONNX processing'));
+      img.src = imageData;
+    });
+
+    // 1. Preprocess image using HTML5 <canvas> (Center-crop, 224x224, ImageNet normalized, CHW Float32Array)
+    const preprocessedData = preprocessImageCanvas(img);
+
+    // 2. Convert preprocessed Float32Array into ONNX tensor: [1, 3, 224, 224]
+    const onnxTensor = new ort.Tensor('float32', preprocessedData, [1, 3, 224, 224]);
+
+    const inputName = this.session.inputNames[0] || 'input';
+    const outputName = this.session.outputNames[0] || 'output';
+
+    // 3. Execute ONNX inference and extract output array ([Benign_Logit, Malignant_Logit])
+    const feeds = { [inputName]: onnxTensor };
+    const results = await this.session.run(feeds);
+    const outputData = results[outputName].data as Float32Array;
+
+    console.log('[ModelService] Evaluated with student_model_quantized.onnx. Raw logits:', Array.from(outputData));
+
+    // 4. Numerically stable Softmax over [Benign_Logit, Malignant_Logit]
+    const benLogit = outputData[0];
+    const malLogit = outputData[1];
+    const maxLogit = Math.max(benLogit, malLogit);
+    const exp0 = Math.exp(benLogit - maxLogit);
+    const exp1 = Math.exp(malLogit - maxLogit);
+    const sum = exp0 + exp1;
+    const benignProb = exp0 / sum;
+    const malignantProb = exp1 / sum;
+
+    // 5. Apply Calibrated Threshold: strict threshold of 0.46 (do NOT use 0.50)
+    // If malignantProb >= 0.75 → "High Risk (Likely Malignant)"
+    // If malignantProb >= 0.46 → "Medium Risk (Potentially Malignant)"
+    // If malignantProb < 0.46  → "Low Risk (Benign)"
+    const threshold = 0.46;
+    const label = malignantProb >= threshold ? 'Malignant' : 'Benign';
+
+    let riskLevel: 'low' | 'medium' | 'high' = 'low';
+    let riskTier = 'Low Risk (Benign)';
+
+    if (malignantProb >= 0.75) {
+      riskLevel = 'high';
+      riskTier = 'High Risk (Likely Malignant)';
+    } else if (malignantProb >= threshold) {
+      riskLevel = 'medium';
+      riskTier = 'Medium Risk (Potentially Malignant)';
+    } else {
+      riskLevel = 'low';
+      riskTier = 'Low Risk (Benign)';
+    }
+
+    const inferenceTimeMs = Math.round(performance.now() - startTime);
+
+    console.log(`[ModelService] Inference completed in ${inferenceTimeMs}ms: ${label} (${(malignantProb * 100).toFixed(1)}% Malignant, ${(benignProb * 100).toFixed(1)}% Benign)`);
+
+    return {
+      prediction: label,
+      confidence: malignantProb,
+      benignProb,
+      malignantProb,
+      riskLevel,
+      riskTier,
+      inferenceTimeMs,
+    };
   }
 }
 

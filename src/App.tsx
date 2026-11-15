@@ -1,10 +1,10 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ImageProvider } from "./context/ImageContext";
+import SkinLesionDetector from "./components/SkinLesionDetector";
 import Index from "./pages/Index";
 import CameraPage from "./pages/Camera";
 import Results from "./pages/Results";
@@ -21,6 +21,7 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
+            <Route path="/detector" element={<SkinLesionDetector />} />
             <Route path="/camera" element={<CameraPage />} />
             <Route path="/results" element={<Results />} />
             <Route path="*" element={<NotFound />} />
