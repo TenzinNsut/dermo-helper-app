@@ -22,16 +22,20 @@ const ActionButton: React.FC<ActionButtonProps> = ({
   ...props
 }) => {
   const variantClasses = {
-    primary: 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm',
-    secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-    outline: 'border border-input bg-transparent hover:bg-accent hover:text-accent-foreground',
-    ghost: 'hover:bg-accent hover:text-accent-foreground',
+    primary:
+      'bg-blue-600 hover:bg-blue-500 text-white font-bold border-2 border-black shadow-[3px_3px_0px_#000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all',
+    secondary:
+      'bg-yellow-300 hover:bg-yellow-200 text-black font-bold border-2 border-black shadow-[3px_3px_0px_#000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all',
+    outline:
+      'bg-white hover:bg-slate-100 text-black font-bold border-2 border-black shadow-[3px_3px_0px_#000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all',
+    ghost:
+      'bg-transparent hover:bg-black hover:text-white text-black font-bold border-2 border-transparent hover:border-black transition-all',
   };
 
   const sizeClasses = {
-    sm: 'h-9 px-3 text-sm rounded-md',
-    md: 'h-10 px-4 py-2 rounded-md',
-    lg: 'h-12 px-6 py-3 text-lg rounded-lg',
+    sm: 'h-9 px-3 text-xs rounded-none sm:rounded-md',
+    md: 'h-10 px-4 py-2 text-sm rounded-none sm:rounded-md',
+    lg: 'h-12 px-6 py-3 text-base rounded-none sm:rounded-md',
   };
 
   return (

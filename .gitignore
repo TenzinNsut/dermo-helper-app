@@ -61,3 +61,6 @@ ios/DerivedData/
 .cache/
 .temp/
 .tmp/
+
+.agents/
+skills-lock.json

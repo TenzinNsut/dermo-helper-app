@@ -2,20 +2,31 @@ import React, { useState, useEffect } from "react";
 import { Camera, CameraResultType } from "@capacitor/camera";
 import * as ort from "onnxruntime-web";
 import { preprocessImageCanvas } from "@/services/modelService";
-import { Button } from "@/components/ui/button"; // shadcn-ui Button
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; // shadcn-ui Card
-import { toast } from "sonner"; // Toast notifications
-import { Loader2, Camera as CameraIcon, Upload, CheckCircle2, AlertTriangle, ShieldCheck, ShieldAlert, Clock } from "lucide-react"; // Icons
+import { toast } from "sonner";
+import {
+  Loader2,
+  Camera as CameraIcon,
+  Upload,
+  CheckCircle2,
+  AlertTriangle,
+  ShieldCheck,
+  ShieldAlert,
+  Clock,
+} from "lucide-react";
 
 const SkinLesionDetector: React.FC = () => {
   const [session, setSession] = useState<ort.InferenceSession | null>(null);
-  const [modelStatus, setModelStatus] = useState<string>("Loading student_model_quantized.onnx...");
+  const [modelStatus, setModelStatus] = useState<string>(
+    "Loading student_model_quantized.onnx...",
+  );
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [prediction, setPrediction] = useState<string | null>(null);
   const [malignantProb, setMalignantProb] = useState<number | null>(null);
   const [benignProb, setBenignProb] = useState<number | null>(null);
   const [riskTier, setRiskTier] = useState<string | null>(null);
-  const [riskLevel, setRiskLevel] = useState<'low' | 'medium' | 'high' | null>(null);
+  const [riskLevel, setRiskLevel] = useState<"low" | "medium" | "high" | null>(
+    null,
+  );
   const [inferenceTimeMs, setInferenceTimeMs] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -48,14 +59,16 @@ const SkinLesionDetector: React.FC = () => {
         }
 
         if (loadedSession) {
-          console.log(`[SkinLesionDetector] student_model_quantized.onnx loaded successfully from: ${loadedPath}`);
-          console.log(`[SkinLesionDetector] Model inputs:`, loadedSession.inputNames);
-          console.log(`[SkinLesionDetector] Model outputs:`, loadedSession.outputNames);
+          console.log(
+            `[SkinLesionDetector] student_model_quantized.onnx loaded successfully from: ${loadedPath}`,
+          );
           setSession(loadedSession);
           setModelStatus("student_model_quantized.onnx (Active)");
-          toast.success("Model student_model_quantized.onnx loaded");
+          toast.success("Model loaded in WebAssembly");
         } else {
-          throw new Error("Could not load student_model_quantized.onnx from any path");
+          throw new Error(
+            "Could not load student_model_quantized.onnx from any path",
+          );
         }
       } catch (error) {
         console.error("[SkinLesionDetector] Error loading model:", error);
@@ -67,7 +80,6 @@ const SkinLesionDetector: React.FC = () => {
     loadModel();
   }, []);
 
-  // Function to capture an image using the device camera
   const captureImage = async () => {
     try {
       const image = await Camera.getPhoto({
@@ -78,7 +90,8 @@ const SkinLesionDetector: React.FC = () => {
 
       setImageSrc(image.dataUrl || null);
       setPrediction(null);
-      setProbability(null);
+      setMalignantProb(null);
+      setBenignProb(null);
       setRiskTier(null);
     } catch (error) {
       console.error("Error capturing image:", error);
@@ -86,7 +99,6 @@ const SkinLesionDetector: React.FC = () => {
     }
   };
 
-  // Function to upload an image from file input (for desktop / gallery fallback)
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -95,7 +107,8 @@ const SkinLesionDetector: React.FC = () => {
         if (typeof event.target?.result === "string") {
           setImageSrc(event.target.result);
           setPrediction(null);
-          setProbability(null);
+          setMalignantProb(null);
+          setBenignProb(null);
           setRiskTier(null);
         }
       };
@@ -103,7 +116,6 @@ const SkinLesionDetector: React.FC = () => {
     }
   };
 
-  // Function to run inference using student_model_quantized.onnx
   const runInference = async () => {
     if (!session || !imageSrc) {
       toast.error("Model or image not loaded");
@@ -113,31 +125,28 @@ const SkinLesionDetector: React.FC = () => {
     setLoading(true);
     const startTime = performance.now();
     try {
-      console.log("[SkinLesionDetector] Running evaluation with student_model_quantized.onnx...");
+      console.log(
+        "[SkinLesionDetector] Running evaluation with student_model_quantized.onnx...",
+      );
 
-      // Load the image into an HTMLImageElement for preprocessing
       const imgElement = new Image();
       imgElement.src = imageSrc;
       await new Promise((resolve, reject) => {
         imgElement.onload = () => resolve(true);
-        imgElement.onerror = () => reject(new Error("Failed to load image for preprocessing"));
+        imgElement.onerror = () =>
+          reject(new Error("Failed to load image for preprocessing"));
       });
 
-      // 1. Preprocess using HTML5 <canvas> (Center-crop, 224x224, ImageNet normalized, CHW Float32Array)
       const preprocessedData = preprocessImageCanvas(imgElement);
+      const onnxTensor = new ort.Tensor("float32", preprocessedData, [
+        1, 3, 224, 224,
+      ]);
 
-      // 2. Create ONNX tensor [1, 3, 224, 224]
-      const onnxTensor = new ort.Tensor("float32", preprocessedData, [1, 3, 224, 224]);
-
-      // Run inference through student_model_quantized.onnx
       const inputName = session.inputNames[0] || "input";
       const outputName = session.outputNames[0] || "output";
       const results = await session.run({ [inputName]: onnxTensor });
       const outputData = results[outputName].data as Float32Array;
 
-      console.log("[SkinLesionDetector] Model raw output logits [Benign, Malignant]:", Array.from(outputData));
-
-      // Numerically stable Softmax over [Benign_Logit, Malignant_Logit]
       const maxLogit = Math.max(outputData[0], outputData[1]);
       const exp0 = Math.exp(outputData[0] - maxLogit);
       const exp1 = Math.exp(outputData[1] - maxLogit);
@@ -145,26 +154,23 @@ const SkinLesionDetector: React.FC = () => {
       const bProb = exp0 / sum;
       const mProb = exp1 / sum;
 
-      // Calibrated optimal threshold: 0.46
       const threshold = 0.46;
-      const label = mProb >= threshold ? 'Malignant' : 'Benign';
-      
-      let tier = 'Low Risk (Benign)';
-      let rLevel: 'low' | 'medium' | 'high' = 'low';
+      const label = mProb >= threshold ? "Malignant" : "Benign";
+
+      let tier = "Low Risk (Benign)";
+      let rLevel: "low" | "medium" | "high" = "low";
       if (mProb >= 0.75) {
-        tier = 'High Risk (Likely Malignant)';
-        rLevel = 'high';
+        tier = "High Risk (Likely Malignant)";
+        rLevel = "high";
       } else if (mProb >= threshold) {
-        tier = 'Medium Risk (Potentially Malignant)';
-        rLevel = 'medium';
+        tier = "Medium Risk (Potentially Malignant)";
+        rLevel = "medium";
       } else {
-        tier = 'Low Risk (Benign)';
-        rLevel = 'low';
+        tier = "Low Risk (Benign)";
+        rLevel = "low";
       }
 
       const elapsed = Math.round(performance.now() - startTime);
-
-      console.log(`[SkinLesionDetector] Result: Label=${label}, Malignant=${(mProb * 100).toFixed(1)}%, Benign=${(bProb * 100).toFixed(1)}%, Tier=${tier}`);
 
       setPrediction(label);
       setMalignantProb(mProb);
@@ -174,7 +180,10 @@ const SkinLesionDetector: React.FC = () => {
       setInferenceTimeMs(elapsed);
       toast.success("Prediction completed");
     } catch (error) {
-      console.error("[SkinLesionDetector] Error running inference with student_model_quantized.onnx:", error);
+      console.error(
+        "[SkinLesionDetector] Error running inference with student_model_quantized.onnx:",
+        error,
+      );
       toast.error("Failed to run prediction");
     } finally {
       setLoading(false);
@@ -182,123 +191,121 @@ const SkinLesionDetector: React.FC = () => {
   };
 
   return (
-    <Card className="w-full max-w-lg mx-auto">
-      <CardHeader>
-        <CardTitle className="text-center">Skin Lesion Detector</CardTitle>
-        <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1">
+    <div className="w-full max-w-xl mx-auto border-2 border-black bg-white shadow-[4px_4px_0px_#000] p-6">
+      <div className="border-b-2 border-black pb-4 mb-6">
+        <h3 className="text-xl font-black uppercase tracking-tight">
+          DIRECT ONNX DETECTOR
+        </h3>
+        <p className="text-xs font-mono font-bold mt-1 text-stone-600 flex items-center gap-1.5">
           {session ? (
-            <span className="inline-flex items-center text-emerald-600 gap-1 font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5" />
+            <span className="inline-flex items-center text-emerald-800 gap-1 bg-emerald-100 px-2 py-0.5 border border-black">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
               {modelStatus}
             </span>
           ) : (
-            <span className="inline-flex items-center text-amber-600 gap-1 font-medium">
-              <AlertTriangle className="w-3.5 h-3.5" />
+            <span className="inline-flex items-center text-amber-800 gap-1 bg-amber-100 px-2 py-0.5 border border-black">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
               {modelStatus}
             </span>
           )}
         </p>
-      </CardHeader>
-      <CardContent className="flex flex-col items-center space-y-4">
-        <div className="flex gap-2">
-          <Button onClick={captureImage} className="flex items-center space-x-2">
-            <CameraIcon className="w-5 h-5" />
-            <span>Capture Image</span>
-          </Button>
+      </div>
 
-          <label>
+      <div className="flex flex-col items-center space-y-4">
+        <div className="flex flex-wrap gap-3 w-full">
+          <button
+            onClick={captureImage}
+            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-black bg-white hover:bg-stone-100 font-mono text-xs font-bold uppercase shadow-[2px_2px_0px_#000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+          >
+            <CameraIcon className="w-4 h-4" />
+            <span>Capture Camera</span>
+          </button>
+
+          <label className="flex-1 cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-black bg-white hover:bg-stone-100 font-mono text-xs font-bold uppercase shadow-[2px_2px_0px_#000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none">
             <input
               type="file"
               accept="image/*"
               className="hidden"
               onChange={handleFileUpload}
             />
-            <Button variant="outline" asChild className="cursor-pointer flex items-center space-x-2">
-              <span>
-                <Upload className="w-4 h-4 mr-1" />
-                Upload Photo
-              </span>
-            </Button>
+            <Upload className="w-4 h-4" />
+            <span>Upload Photo</span>
           </label>
         </div>
 
         {imageSrc && (
-          <div className="mt-2 w-full flex justify-center">
+          <div className="mt-2 w-full p-2 border-2 border-black bg-stone-900 shadow-[3px_3px_0px_#000] flex justify-center">
             <img
               src={imageSrc}
-              alt="Captured"
-              className="w-48 h-48 object-cover rounded-xl border shadow-sm"
+              alt="Lesion candidate"
+              className="w-48 h-48 object-cover border border-black"
             />
           </div>
         )}
 
         {imageSrc && (
-          <Button onClick={runInference} disabled={loading || !session} className="w-full">
+          <button
+            onClick={runInference}
+            disabled={loading || !session}
+            className="w-full py-3.5 px-4 border-2 border-black bg-emerald-400 hover:bg-emerald-300 font-mono text-xs font-black uppercase tracking-wider shadow-[3px_3px_0px_#000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
             {loading ? (
               <>
-                <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                Evaluating with student_model_quantized.onnx...
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Running Inference (WASM)...</span>
               </>
             ) : (
-              "Run Prediction"
+              <span>Evaluate Lesion (student_model_quantized.onnx)</span>
             )}
-          </Button>
+          </button>
         )}
 
         {prediction && malignantProb !== null && benignProb !== null && (
-          <div className="w-full space-y-4 mt-4 animate-scale-in">
-            {/* TOP CARD: Detailed Risk Stratification (Clean Whitish Style) */}
+          <div className="w-full space-y-4 mt-4">
+            {/* Top Card */}
             <div
-              className={`bg-white border rounded-2xl p-4 md:p-5 flex items-center justify-between shadow-sm ${
+              className={`border-2 border-black p-4 flex items-center justify-between shadow-[3px_3px_0px_#000] ${
                 riskLevel === "low"
-                  ? "border-emerald-200/80 bg-emerald-50/20"
+                  ? "bg-emerald-50"
                   : riskLevel === "medium"
-                    ? "border-amber-200/80 bg-amber-50/20"
-                    : "border-red-200/80 bg-red-50/20"
+                    ? "bg-amber-50"
+                    : "bg-rose-50"
               }`}
             >
-              <div className="flex items-center gap-3 md:gap-4">
-                {/* Status Icon container */}
+              <div className="flex items-center gap-3">
                 <div
-                  className={`w-12 h-12 rounded-xl flex items-center justify-center border flex-shrink-0 ${
+                  className={`w-10 h-10 border-2 border-black flex items-center justify-center flex-shrink-0 shadow-[2px_2px_0px_#000] ${
                     riskLevel === "low"
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                      ? "bg-emerald-300 text-black"
                       : riskLevel === "medium"
-                        ? "bg-amber-50 border-amber-200 text-amber-600"
-                        : "bg-red-50 border-red-200 text-red-600"
+                        ? "bg-amber-300 text-black"
+                        : "bg-rose-300 text-black"
                   }`}
                 >
                   {riskLevel === "low" ? (
-                    <ShieldCheck className="w-6 h-6 stroke-[2.2]" />
+                    <ShieldCheck className="w-5 h-5 stroke-[2.5]" />
                   ) : riskLevel === "medium" ? (
-                    <AlertTriangle className="w-6 h-6 stroke-[2.2]" />
+                    <AlertTriangle className="w-5 h-5 stroke-[2.5]" />
                   ) : (
-                    <ShieldAlert className="w-6 h-6 stroke-[2.2]" />
+                    <ShieldAlert className="w-5 h-5 stroke-[2.5]" />
                   )}
                 </div>
 
                 <div>
-                  {/* Status Pill Badge */}
                   <div
-                    className={`inline-flex items-center px-3 py-0.5 rounded-full text-xs font-bold tracking-wider uppercase border ${
+                    className={`inline-flex items-center px-2 py-0.5 border-2 border-black text-[11px] font-mono font-bold uppercase shadow-[2px_2px_0px_#000] ${
                       riskLevel === "low"
-                        ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                        ? "bg-emerald-300 text-black"
                         : riskLevel === "medium"
-                          ? "bg-amber-50 border-amber-300 text-amber-700"
-                          : "bg-red-50 border-red-300 text-red-700"
+                          ? "bg-amber-300 text-black"
+                          : "bg-rose-300 text-black"
                     }`}
                   >
-                    {riskLevel === "low"
-                      ? "LOW RISK (BENIGN)"
-                      : riskLevel === "medium"
-                        ? "MEDIUM RISK (POTENTIALLY MALIGNANT)"
-                        : "HIGH RISK (LIKELY MALIGNANT)"}
+                    {riskTier}
                   </div>
-
-                  {/* Primary Confidence Text */}
-                  <p className="text-sm text-slate-600 mt-1 font-normal">
+                  <p className="text-xs font-mono text-stone-700 mt-1">
                     Confidence:{" "}
-                    <span className="font-bold text-slate-900">
+                    <span className="font-black text-black">
                       {(
                         (prediction === "Benign" ? benignProb : malignantProb) *
                         100
@@ -309,102 +316,91 @@ const SkinLesionDetector: React.FC = () => {
                 </div>
               </div>
 
-              {/* Right Column: Class Probabilities Breakdown */}
-              <div className="border-l border-slate-200 pl-3 md:pl-5 text-xs md:text-sm flex flex-col justify-center space-y-1">
-                <div className="flex items-center justify-between gap-2.5">
-                  <span className="text-slate-500 font-medium">Benign:</span>
-                  <span className="font-bold text-emerald-600 font-mono">
+              <div className="border-l-2 border-black pl-3 text-xs font-mono space-y-0.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-stone-600 font-bold">Benign:</span>
+                  <span className="font-black text-emerald-700">
                     {(benignProb * 100).toFixed(1)}%
                   </span>
                 </div>
-                <div className="flex items-center justify-between gap-2.5">
-                  <span className="text-slate-500 font-medium">Malignant:</span>
-                  <span className="font-bold text-red-600 font-mono">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-stone-600 font-bold">Malignant:</span>
+                  <span className="font-black text-rose-700">
                     {(malignantProb * 100).toFixed(1)}%
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* BOTTOM CARD: Malignancy Probability Bar with Cutoff Dividers (Clean Whitish Style) */}
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 md:p-5 shadow-sm">
-              <div className="flex justify-between items-start mb-3">
+            {/* Bottom Card */}
+            <div className="bg-white border-2 border-black p-4 shadow-[3px_3px_0px_#000]">
+              <div className="flex justify-between items-start mb-2">
                 <div>
-                  <h4 className="text-xs md:text-sm font-semibold tracking-wider text-slate-700 uppercase">
+                  <h4 className="text-xs font-black font-mono tracking-wider uppercase text-black">
                     MALIGNANCY PROBABILITY
                   </h4>
-                  <p className="text-[11px] md:text-xs text-slate-500 mt-0.5">
-                    Calibrated against clinical threshold (0.46)
+                  <p className="text-[10px] font-mono text-stone-600">
+                    Threshold: 0.46
                   </p>
                 </div>
-
-                {/* Giant Malignancy Percentage */}
                 <span
-                  className={`text-2xl md:text-3xl font-extrabold tracking-tight font-mono ${
+                  className={`text-2xl font-black font-mono ${
                     riskLevel === "low"
-                      ? "text-emerald-600"
+                      ? "text-emerald-700"
                       : riskLevel === "medium"
-                        ? "text-amber-600"
-                        : "text-red-600"
+                        ? "text-amber-700"
+                        : "text-rose-700"
                   }`}
                 >
                   {(malignantProb * 100).toFixed(1)}%
                 </span>
               </div>
 
-              {/* Multi-tier Progress Bar */}
-              <div className="relative w-full h-3.5 bg-slate-100 border border-slate-200/70 rounded-full overflow-hidden mt-3">
-                {/* Active Progress Fill */}
+              <div className="relative w-full h-4 bg-stone-100 border-2 border-black overflow-hidden mt-2">
                 <div
-                  className={`h-full rounded-full transition-all duration-700 ease-out ${
+                  className={`h-full border-r-2 border-black ${
                     riskLevel === "low"
-                      ? "bg-emerald-500"
+                      ? "bg-emerald-400"
                       : riskLevel === "medium"
-                        ? "bg-amber-500"
-                        : "bg-red-500"
+                        ? "bg-amber-400"
+                        : "bg-rose-400"
                   }`}
                   style={{
                     width: `${Math.min(Math.max(malignantProb * 100, 0), 100)}%`,
                   }}
                 />
-                {/* 46% Cutoff Tick Mark Divider (Amber) */}
                 <div
-                  className="absolute top-0 bottom-0 w-[2px] bg-amber-500 z-10 pointer-events-none"
+                  className="absolute top-0 bottom-0 w-[2px] bg-black z-10 pointer-events-none"
                   style={{ left: "46%" }}
                 />
-                {/* 75% High Risk Tick Mark Divider (Red) */}
                 <div
-                  className="absolute top-0 bottom-0 w-[2px] bg-red-500 z-10 pointer-events-none"
+                  className="absolute top-0 bottom-0 w-[2px] bg-black z-10 pointer-events-none"
                   style={{ left: "75%" }}
                 />
               </div>
 
-              {/* Axis Labels & Cutoff Markers */}
-              <div className="relative w-full text-[10px] md:text-xs font-mono font-medium mt-2 h-4">
-                <span className="text-emerald-600 font-semibold absolute left-0">
+              <div className="relative w-full text-[10px] font-mono font-bold mt-1.5 h-4">
+                <span className="text-emerald-700 absolute left-0">
                   0% (Benign)
                 </span>
-                <span className="text-amber-600 font-semibold absolute left-[46%] -translate-x-1/2 flex items-center gap-0.5 whitespace-nowrap">
-                  ▲ 46% Cutoff
+                <span className="text-amber-800 absolute left-[46%] -translate-x-1/2">
+                  ▲ 46%
                 </span>
-                <span className="text-red-600 font-semibold absolute left-[75%] -translate-x-1/2 flex items-center gap-0.5 whitespace-nowrap">
-                  ▲ 75% High Risk
+                <span className="text-rose-800 absolute left-[75%] -translate-x-1/2">
+                  ▲ 75%
                 </span>
-                <span className="text-red-600 font-semibold absolute right-0">100%</span>
+                <span className="text-rose-800 absolute right-0">100%</span>
               </div>
             </div>
 
-            {/* Inference Time Footer */}
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 pl-1">
-              <Clock className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-              <span>
-                Inference completed in {inferenceTimeMs || 100} ms
-              </span>
+            <div className="flex items-center gap-1.5 text-[11px] font-mono font-bold text-stone-600">
+              <Clock className="w-3.5 h-3.5 text-black" />
+              <span>Inference completed in {inferenceTimeMs || 100} ms</span>
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 };
 
