@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "app.lovable.f231bd02b9d646188f85148b66ac96dd"
+    namespace "com.dermohelper.app"
     compileSdkVersion rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "app.lovable.f231bd02b9d646188f85148b66ac96dd"
+        applicationId "com.dermohelper.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

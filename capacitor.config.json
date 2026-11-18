@@ -1,6 +1,6 @@
 {
-  "appId": "app.lovable.f231bd02b9d646188f85148b66ac96dd",
-  "appName": "dermo-helper-app",
+  "appId": "com.dermohelper.app",
+  "appName": "Dermo Helper",
   "webDir": "dist",
   "plugins": {
     "Camera": {
